@@ -254,6 +254,65 @@ document.addEventListener('DOMContentLoaded', () => {
     hideError();
   }
 
+  // --- Loading UI helpers ---
+  const loadingText = document.getElementById('loading-text');
+  const loadingSub = document.getElementById('loading-sub');
+  const loadingProgress = document.getElementById('loading-progress');
+  const loadingProgressBar = document.getElementById('loading-progress-bar');
+
+  function setLoadingState(text, sub, progress) {
+    loadingText.textContent = text || 'Menganalisis...';
+    loadingSub.textContent = sub || 'Model AI sedang memproses file Anda';
+    if (progress !== undefined) {
+      loadingProgress.classList.remove('hidden');
+      loadingProgressBar.style.width = progress + '%';
+    } else {
+      loadingProgress.classList.add('hidden');
+      loadingProgressBar.style.width = '0%';
+    }
+  }
+
+  // --- Video frame extraction ---
+  function extractFramesFromVideo(videoEl, numFrames) {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const duration = videoEl.duration;
+      // Sample evenly spaced frames, skip first/last 0.1s
+      const start = 0.1;
+      const end = Math.max(duration - 0.1, start + 0.1);
+      const interval = (end - start) / Math.max(numFrames - 1, 1);
+      const times = [];
+      for (let i = 0; i < numFrames; i++) {
+        times.push(start + i * interval);
+      }
+
+      const frames = []; // { blob, time }
+      let idx = 0;
+
+      function seekNext() {
+        if (idx >= times.length) {
+          resolve(frames);
+          return;
+        }
+        videoEl.currentTime = times[idx];
+      }
+
+      videoEl.onseeked = () => {
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        ctx.drawImage(videoEl, 0, 0);
+        canvas.toBlob((blob) => {
+          frames.push({ blob, time: times[idx] });
+          idx++;
+          seekNext();
+        }, 'image/jpeg', 0.85);
+      };
+
+      seekNext();
+    });
+  }
+
   // --- Detection ---
   btnDetect.addEventListener('click', async () => {
     if (!selectedFile) return;
@@ -267,8 +326,47 @@ document.addEventListener('DOMContentLoaded', () => {
     hideError();
 
     try {
-      const result = await ApiService.predict(selectedFile);
-      handleResult(result);
+      if (isImage) {
+        setLoadingState('Menganalisis gambar...', 'Model AI sedang memproses file Anda');
+        const result = await ApiService.predict(selectedFile);
+        const detections = parseDetections(result);
+        showImageResults(detections);
+      } else {
+        // Video: extract frames client-side, send each as image
+        setLoadingState('Menyiapkan video...', 'Mengekstrak frame dari video');
+        const video = previewVideo;
+
+        // Wait for video to be ready
+        if (video.readyState < 2) {
+          await new Promise((res) => { video.onloadeddata = res; });
+        }
+
+        const duration = video.duration;
+        // 1 frame per second, min 1, max 30
+        const numFrames = Math.max(1, Math.min(30, Math.floor(duration)));
+        const frames = await extractFramesFromVideo(video, numFrames);
+
+        setLoadingState('Mendeteksi tandan...', `Frame 0 / ${frames.length}`, 0);
+
+        const allFrameResults = [];
+        const frameImages = []; // store blob URLs for drawing
+
+        for (let i = 0; i < frames.length; i++) {
+          setLoadingState(
+            'Mendeteksi tandan...',
+            `Frame ${i + 1} / ${frames.length}`,
+            Math.round(((i + 1) / frames.length) * 100)
+          );
+
+          const file = new File([frames[i].blob], `frame_${i}.jpg`, { type: 'image/jpeg' });
+          const result = await ApiService.predict(file);
+          const detections = parseDetections(result);
+          allFrameResults.push(detections);
+          frameImages.push(URL.createObjectURL(frames[i].blob));
+        }
+
+        showVideoResults(allFrameResults, frameImages);
+      }
     } catch (err) {
       showError(err.message || 'Terjadi kesalahan saat menghubungi server.');
     } finally {
@@ -276,38 +374,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  function handleResult(result) {
-    let detections = [];
-    let frameResults = null;
-
+  function parseDetections(result) {
     if (result && result.images && Array.isArray(result.images)) {
-      if (result.images.length > 1) {
-        frameResults = result.images.map(img => img.results || []);
-      } else {
-        detections = result.images[0].results || result.images[0].detections || [];
-      }
+      return result.images[0].results || result.images[0].detections || [];
     } else if (result && result.results && Array.isArray(result.results)) {
-      detections = result.results;
+      return result.results;
     } else if (Array.isArray(result)) {
-      detections = result;
+      return result;
     } else if (result && result.data) {
       if (Array.isArray(result.data)) {
-        detections = result.data;
+        return result.data;
       } else if (result.data.images) {
-        const images = result.data.images;
-        if (images.length > 1) {
-          frameResults = images.map(img => img.results || []);
-        } else {
-          detections = images[0].results || [];
-        }
+        return result.data.images[0].results || [];
       }
     }
-
-    if (frameResults) {
-      showVideoResults(frameResults);
-    } else {
-      showImageResults(detections);
-    }
+    return [];
   }
 
   function showImageResults(detections) {
@@ -323,8 +404,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fillDetectionTable(detections);
   }
 
-  function showVideoResults(frames) {
+  let videoFrameImages = [];
+
+  function showVideoResults(frames, frameImageUrls) {
     videoFrameResults = frames;
+    videoFrameImages = frameImageUrls || [];
     currentFrameIndex = 0;
 
     resultsSection.classList.remove('hidden');
@@ -338,22 +422,26 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderCurrentVideoFrame() {
     const detections = videoFrameResults[currentFrameIndex] || [];
     const count = detections.length;
-    detectionCount.textContent = `${count} pohon terdeteksi (Frame ${currentFrameIndex + 1})`;
+    detectionCount.textContent = `${count} tandan terdeteksi (Frame ${currentFrameIndex + 1})`;
     fillDetectionTable(detections);
 
-    const video = previewVideo;
-    if (video.duration && videoFrameResults.length > 1) {
-      const timePerFrame = video.duration / videoFrameResults.length;
-      video.currentTime = currentFrameIndex * timePerFrame;
-    }
-
-    video.onseeked = () => {
-      CanvasRenderer.drawVideoFrameWithBoxes(videoResultCanvas, video, detections);
-      video.onseeked = null;
-    };
-
-    if (video.readyState >= 2) {
-      CanvasRenderer.drawVideoFrameWithBoxes(videoResultCanvas, video, detections);
+    // Draw from extracted frame image
+    if (videoFrameImages[currentFrameIndex]) {
+      CanvasRenderer.drawImageWithBoxes(videoResultCanvas, videoFrameImages[currentFrameIndex], detections);
+    } else {
+      // Fallback: seek video
+      const video = previewVideo;
+      if (video.duration && videoFrameResults.length > 1) {
+        const timePerFrame = video.duration / videoFrameResults.length;
+        video.currentTime = currentFrameIndex * timePerFrame;
+      }
+      video.onseeked = () => {
+        CanvasRenderer.drawVideoFrameWithBoxes(videoResultCanvas, video, detections);
+        video.onseeked = null;
+      };
+      if (video.readyState >= 2) {
+        CanvasRenderer.drawVideoFrameWithBoxes(videoResultCanvas, video, detections);
+      }
     }
   }
 
@@ -427,11 +515,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function showLoading() {
     loadingSection.classList.remove('hidden');
     btnDetect.disabled = true;
+    setLoadingState();
   }
 
   function hideLoading() {
     loadingSection.classList.add('hidden');
     btnDetect.disabled = false;
+    loadingProgress.classList.add('hidden');
+    loadingProgressBar.style.width = '0%';
     checkApiKey();
   }
 

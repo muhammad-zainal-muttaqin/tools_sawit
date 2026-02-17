@@ -655,6 +655,23 @@ input { font-family: inherit; }
   color: var(--c-text-muted);
 }
 
+.progress {
+  width: 100%;
+  max-width: 300px;
+  height: 6px;
+  background: var(--c-surface-raised);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: var(--space-md);
+}
+.progress__bar {
+  height: 100%;
+  width: 0%;
+  background: var(--c-accent);
+  border-radius: 3px;
+  transition: width 0.3s var(--ease);
+}
+
 /* ---- Results ---- */
 .results__header {
   display: flex;
