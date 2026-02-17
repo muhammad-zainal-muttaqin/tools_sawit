@@ -76,6 +76,7 @@
       <div class="settings__grid">
         <div class="settings__section">
           <label class="settings__label">Confidence</label>
+          <p class="settings__desc">Batas keyakinan model. Lebih tinggi = lebih sedikit deteksi tapi lebih akurat.</p>
           <div class="slider-row">
             <input type="range" id="slider-conf" class="slider" min="0.01" max="1" step="0.01" value="0.25">
             <input type="number" id="input-conf" class="input-num" min="0.01" max="1" step="0.01" value="0.25">
@@ -84,6 +85,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">IoU Threshold</label>
+          <p class="settings__desc">Batas overlap box dari model. Lebih rendah = lebih agresif menghapus box ganda.</p>
           <div class="slider-row">
             <input type="range" id="slider-iou" class="slider" min="0" max="0.95" step="0.05" value="0.45">
             <input type="number" id="input-iou" class="input-num" min="0" max="0.95" step="0.05" value="0.45">
@@ -92,6 +94,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">Image Size</label>
+          <p class="settings__desc">Resolusi input ke model. Lebih besar = lebih detail tapi lebih lambat.</p>
           <div class="slider-row">
             <input type="range" id="slider-imgsz" class="slider" min="32" max="1280" step="32" value="640">
             <input type="number" id="input-imgsz" class="input-num" min="32" max="1280" step="32" value="640">
@@ -108,6 +111,7 @@
       <div class="settings__grid">
         <div class="settings__section">
           <label class="settings__label">Min Confidence Tracker</label>
+          <p class="settings__desc">Deteksi di bawah nilai ini dibuang sebelum tracking. Lebih tinggi = kurangi noise, tapi bisa kehilangan tandan kecil.</p>
           <div class="slider-row">
             <input type="range" id="slider-track-conf" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
             <input type="number" id="input-track-conf" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
@@ -116,6 +120,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">NMS IoU Threshold</label>
+          <p class="settings__desc">Batas overlap untuk merge box ganda. Lebih rendah = lebih agresif merge, kurangi hitung dobel.</p>
           <div class="slider-row">
             <input type="range" id="slider-nms-iou" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
             <input type="number" id="input-nms-iou" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
@@ -124,6 +129,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">Max Distance (%)</label>
+          <p class="settings__desc">Jarak maksimal mencocokkan tandan antar frame. Lebih besar = toleran gerakan kamera, tapi bisa salah cocokkan.</p>
           <div class="slider-row">
             <input type="range" id="slider-max-dist" class="slider" min="1" max="20" step="1" value="8">
             <input type="number" id="input-max-dist" class="input-num" min="1" max="20" step="1" value="8">
@@ -132,6 +138,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">Max Age (frame)</label>
+          <p class="settings__desc">Berapa frame tandan bertahan tanpa terdeteksi ulang. Lebih besar = track lebih stabil, tapi bisa tahan false positive.</p>
           <div class="slider-row">
             <input type="range" id="slider-max-age" class="slider" min="1" max="15" step="1" value="5">
             <input type="number" id="input-max-age" class="input-num" min="1" max="15" step="1" value="5">
@@ -140,6 +147,7 @@
         </div>
         <div class="settings__section">
           <label class="settings__label">Min Hits (frame)</label>
+          <p class="settings__desc">Minimal terdeteksi di berapa frame baru dihitung unik. Lebih besar = kurangi false positive, tapi bisa miss tandan sekilas.</p>
           <div class="slider-row">
             <input type="range" id="slider-min-hits" class="slider" min="1" max="5" step="1" value="2">
             <input type="number" id="input-min-hits" class="input-num" min="1" max="5" step="1" value="2">

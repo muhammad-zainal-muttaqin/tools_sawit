@@ -273,6 +273,13 @@ input { font-family: inherit; }
   font-weight: 500;
 }
 
+.settings__desc {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--c-text-dim, rgba(255,255,255,0.4));
+  margin: -2px 0 var(--space-sm) 0;
+}
+
 .settings__label--section {
   font-size: 0.85rem;
   font-weight: 600;
