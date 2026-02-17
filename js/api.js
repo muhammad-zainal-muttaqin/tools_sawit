@@ -60,5 +60,21 @@ const ApiService = {
     }
 
     return response.json();
+  },
+
+  async predictBatchSequential(files, onProgress) {
+    const results = [];
+    const safeFiles = Array.isArray(files) ? files : [];
+    for (let i = 0; i < safeFiles.length; i++) {
+      if (typeof onProgress === 'function') {
+        onProgress({ index: i, total: safeFiles.length, phase: 'start' });
+      }
+      const result = await this.predict(safeFiles[i]);
+      results.push(result);
+      if (typeof onProgress === 'function') {
+        onProgress({ index: i + 1, total: safeFiles.length, phase: 'done' });
+      }
+    }
+    return results;
   }
 };

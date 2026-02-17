@@ -46,7 +46,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let videoUniqueCount = 0;
 
   const DEFAULTS = { conf: 0.25, iou: 0.45, imgsz: 640 };
-  const TRACKER_DEFAULTS = { trackConf: 0.40, nmsIou: 0.40, maxDist: 8, maxAge: 5, minHits: 2 };
+  // Tracker defaults tuned untuk tandan sawit (objek relatif statis, kamera bisa bergerak):
+  // - trackConf sedikit lebih rendah agar lebih banyak kandidat bisa di-track
+  // - nmsIou sedikit lebih tinggi agar box yang overlap kuat digabung
+  // - maxDist tetap moderat (8% dari diagonal frame)
+  // - maxAge sedikit diturunkan agar track cepat drop saat hilang
+  const TRACKER_DEFAULTS = { trackConf: 0.35, nmsIou: 0.50, maxDist: 8, maxAge: 4, minHits: 2 };
+  const TREE_COUNT_DEFAULTS = { autoMergeMin: 0.82, ambiguousMin: 0.68 };
 
   const btnResetSettings = document.getElementById('btn-reset-settings');
 
@@ -61,6 +67,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputMaxAge = document.getElementById('input-max-age');
   const sliderMinHits = document.getElementById('slider-min-hits');
   const inputMinHits = document.getElementById('input-min-hits');
+  const sliderTreeAutoMerge = document.getElementById('slider-tree-auto-merge');
+  const inputTreeAutoMerge = document.getElementById('input-tree-auto-merge');
+  const sliderTreeAmbiguous = document.getElementById('slider-tree-ambiguous');
+  const inputTreeAmbiguous = document.getElementById('input-tree-ambiguous');
 
   // Create settings overlay
   const overlay = document.createElement('div');
@@ -97,6 +107,24 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('sawitai_tracker', JSON.stringify(s));
   }
 
+  function getTreeCountSettings() {
+    try {
+      const raw = localStorage.getItem('sawitai_tree_count');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          autoMergeMin: parseFloat(parsed.autoMergeMin ?? TREE_COUNT_DEFAULTS.autoMergeMin),
+          ambiguousMin: parseFloat(parsed.ambiguousMin ?? TREE_COUNT_DEFAULTS.ambiguousMin),
+        };
+      }
+    } catch (_) {}
+    return { ...TREE_COUNT_DEFAULTS };
+  }
+
+  function saveTreeCountSettings(s) {
+    localStorage.setItem('sawitai_tree_count', JSON.stringify(s));
+  }
+
   function initSettings() {
     const settings = ApiService.getSettings();
     sliderConf.value = settings.conf;
@@ -118,6 +146,13 @@ document.addEventListener('DOMContentLoaded', () => {
     inputMaxAge.value = ts.maxAge;
     sliderMinHits.value = ts.minHits;
     inputMinHits.value = ts.minHits;
+
+    const tcs = getTreeCountSettings();
+    sliderTreeAutoMerge.value = tcs.autoMergeMin;
+    inputTreeAutoMerge.value = tcs.autoMergeMin;
+    sliderTreeAmbiguous.value = tcs.ambiguousMin;
+    inputTreeAmbiguous.value = tcs.ambiguousMin;
+    normalizeTreeThresholds();
 
     if (ApiService.hasApiKey()) {
       inputApiKey.value = ApiService.getApiKey();
@@ -192,6 +227,49 @@ document.addEventListener('DOMContentLoaded', () => {
   syncTrackerPair(sliderMaxAge, inputMaxAge);
   syncTrackerPair(sliderMinHits, inputMinHits);
 
+  function normalizeTreeThresholds(changedBy) {
+    const autoMin = parseFloat(sliderTreeAutoMerge.min);
+    const autoMax = parseFloat(sliderTreeAutoMerge.max);
+    const ambMin = parseFloat(sliderTreeAmbiguous.min);
+    const ambMax = parseFloat(sliderTreeAmbiguous.max);
+
+    let autoV = clampToSlider(sliderTreeAutoMerge, sliderTreeAutoMerge.value);
+    let ambV = clampToSlider(sliderTreeAmbiguous, sliderTreeAmbiguous.value);
+
+    if (ambV >= autoV) {
+      if (changedBy === 'ambiguous') {
+        autoV = Math.min(autoMax, parseFloat((ambV + 0.01).toFixed(2)));
+      } else {
+        ambV = Math.max(ambMin, parseFloat((autoV - 0.01).toFixed(2)));
+      }
+    }
+
+    autoV = Math.max(autoMin, Math.min(autoMax, autoV));
+    ambV = Math.max(ambMin, Math.min(ambMax, ambV));
+
+    sliderTreeAutoMerge.value = autoV;
+    inputTreeAutoMerge.value = autoV;
+    sliderTreeAmbiguous.value = ambV;
+    inputTreeAmbiguous.value = ambV;
+  }
+
+  function syncTreePair(slider, input, changedBy) {
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+      normalizeTreeThresholds(changedBy);
+      saveCurrentTreeCountSettings();
+    });
+    input.addEventListener('change', () => {
+      const v = clampToSlider(slider, input.value);
+      input.value = v;
+      slider.value = v;
+      normalizeTreeThresholds(changedBy);
+      saveCurrentTreeCountSettings();
+    });
+  }
+  syncTreePair(sliderTreeAutoMerge, inputTreeAutoMerge, 'auto');
+  syncTreePair(sliderTreeAmbiguous, inputTreeAmbiguous, 'ambiguous');
+
   function saveCurrentTrackerSettings() {
     saveTrackerSettings({
       trackConf: parseFloat(sliderTrackConf.value),
@@ -199,6 +277,13 @@ document.addEventListener('DOMContentLoaded', () => {
       maxDist: parseInt(sliderMaxDist.value, 10),
       maxAge: parseInt(sliderMaxAge.value, 10),
       minHits: parseInt(sliderMinHits.value, 10),
+    });
+  }
+
+  function saveCurrentTreeCountSettings() {
+    saveTreeCountSettings({
+      autoMergeMin: parseFloat(sliderTreeAutoMerge.value),
+      ambiguousMin: parseFloat(sliderTreeAmbiguous.value),
     });
   }
 
@@ -232,6 +317,13 @@ document.addEventListener('DOMContentLoaded', () => {
     sliderMinHits.value = TRACKER_DEFAULTS.minHits;
     inputMinHits.value = TRACKER_DEFAULTS.minHits;
     saveCurrentTrackerSettings();
+
+    sliderTreeAutoMerge.value = TREE_COUNT_DEFAULTS.autoMergeMin;
+    inputTreeAutoMerge.value = TREE_COUNT_DEFAULTS.autoMergeMin;
+    sliderTreeAmbiguous.value = TREE_COUNT_DEFAULTS.ambiguousMin;
+    inputTreeAmbiguous.value = TREE_COUNT_DEFAULTS.ambiguousMin;
+    normalizeTreeThresholds();
+    saveCurrentTreeCountSettings();
   });
 
   // --- API Key ---

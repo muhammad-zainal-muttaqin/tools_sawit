@@ -1,6 +1,6 @@
 /**
  * Non-Maximum Suppression — merge overlapping boxes, keeping higher confidence.
- * @param {Array} detections - [{box:{x1,y1,x2,y2}, confidence, ...}, ...]
+ * @param {Array} detections - [{box:{x1,y1,x2,y2}, confidence|conf, ...}, ...]
  * @param {number} iouThreshold - IoU above which the weaker box is suppressed
  * @returns {Array} filtered detections
  */
@@ -34,6 +34,7 @@ function nms(detections, iouThreshold) {
 
 /**
  * Compute Intersection-over-Union between two detections.
+ * Accepts detections with `box` or `bbox` in either object or array format.
  */
 function computeIoU(detA, detB) {
   const boxA = detA.box || detA.bbox || {};
@@ -80,6 +81,7 @@ class CentroidTracker {
    * @param {number} options.minConfidence - Minimum confidence to accept a detection (0-1)
    * @param {number} options.minHits - Minimum frames a track must be seen to count as unique
    * @param {number} options.iouThreshold - IoU threshold for NMS suppression
+    * @param {number} [options.highScoreThreshold] - Confidence threshold for high-score BYTE association
    */
   constructor(options = {}) {
     this.maxDistance = options.maxDistance || 50;
@@ -87,6 +89,12 @@ class CentroidTracker {
     this.minConfidence = options.minConfidence || 0;
     this.minHits = options.minHits || 1;
     this.iouThreshold = options.iouThreshold || 0.4;
+    // High-score threshold for BYTE-style two-stage association.
+    // Default: at least 0.6 or current minConfidence, whichever is higher.
+    this.highScoreThreshold =
+      options.highScoreThreshold !== undefined
+        ? options.highScoreThreshold
+        : Math.max(this.minConfidence, 0.6);
 
     this.tracks = new Map(); // id -> { cx, cy, w, h, age, hits, confidence, name }
     this.expiredTracks = []; // tracks that aged out, kept for unique counting
@@ -126,13 +134,27 @@ class CentroidTracker {
       };
     });
 
-    // First frame — all detections become new tracks
+    // First frame (or tracker reset) — all detections become new tracks
     if (this.tracks.size === 0 && incoming.length > 0) {
       return incoming.map(inc => {
         const id = this._createTrack(inc);
         inc.det.trackId = id;
         return inc.det;
       });
+    }
+
+    // No existing tracks or no detections: age current tracks and return
+    if (this.tracks.size === 0 || incoming.length === 0) {
+      // Age all tracks if there are no detections
+      if (incoming.length === 0 && this.tracks.size > 0) {
+        const motion = { dx: 0, dy: 0 };
+        const trackIds = Array.from(this.tracks.keys());
+        const unmatchedTracks = trackIds.slice();
+        const unmatchedDets = [];
+        return this._applyMatches({ matches: [], unmatchedTracks, unmatchedDets }, incoming, motion);
+      }
+      // No tracks but we already handled first-frame case above, so just return detections
+      return incoming.map(inc => inc.det);
     }
 
     // Build arrays from existing tracks
@@ -143,21 +165,63 @@ class CentroidTracker {
       trackCentroids.push({ cx: t.cx, cy: t.cy });
     }
 
-    // Greedy matching (before motion compensation, to estimate motion)
-    const { matches, unmatchedTracks, unmatchedDets } =
-      this._greedyMatch(trackIds, trackCentroids, incoming);
+    // BYTE-style split: high-confidence vs low-confidence detections
+    const highIndices = [];
+    const lowIndices = [];
+    for (let i = 0; i < incoming.length; i++) {
+      const det = incoming[i].det;
+      const conf = det.confidence !== undefined ? det.confidence : det.conf;
+      if (conf >= this.highScoreThreshold) {
+        highIndices.push(i);
+      } else {
+        lowIndices.push(i);
+      }
+    }
 
-    // Estimate global motion from matched pairs
-    const motion = this._estimateMotion(trackIds, trackCentroids, incoming, matches);
+    // Stage 1: match high-confidence detections to all tracks (for motion estimation)
+    const initialMatch = this._greedyMatch(trackIds, trackCentroids, incoming, highIndices);
 
-    // If significant motion detected, re-match with compensated positions
+    // Estimate global motion from matched high-confidence pairs
+    const motion = this._estimateMotion(trackIds, trackCentroids, incoming, initialMatch.matches);
+
+    // If significant motion detected, re-match high-confidence with motion-compensated tracks
+    let stage1;
     if (Math.abs(motion.dx) > 1 || Math.abs(motion.dy) > 1) {
       const compensated = trackCentroids.map(tc => ({
         cx: tc.cx + motion.dx,
         cy: tc.cy + motion.dy,
       }));
-      const result = this._greedyMatch(trackIds, compensated, incoming);
-      return this._applyMatches(result, incoming, motion);
+      stage1 = this._greedyMatch(trackIds, compensated, incoming, highIndices);
+    } else {
+      stage1 = initialMatch;
+    }
+
+    let matches = stage1.matches;
+    let unmatchedTracks = stage1.unmatchedTracks;
+    let unmatchedDets = stage1.unmatchedDets; // high-confidence detections that did not match
+
+    // Stage 2: match low-confidence detections ONLY to unmatched tracks (BYTE idea)
+    if (unmatchedTracks.length > 0 && lowIndices.length > 0) {
+      const unmatchedTrackCentroids = unmatchedTracks.map(id => {
+        const t = this.tracks.get(id);
+        return {
+          cx: t.cx + motion.dx,
+          cy: t.cy + motion.dy,
+        };
+      });
+
+      const stage2 = this._greedyMatch(
+        unmatchedTracks,
+        unmatchedTrackCentroids,
+        incoming,
+        lowIndices
+      );
+
+      // Merge matches from both stages
+      matches = matches.concat(stage2.matches);
+      unmatchedTracks = stage2.unmatchedTracks;
+      // Unmatched detections are: high unmatched from stage1 + low unmatched from stage2
+      unmatchedDets = unmatchedDets.concat(stage2.unmatchedDets);
     }
 
     return this._applyMatches({ matches, unmatchedTracks, unmatchedDets }, incoming, motion);
@@ -206,15 +270,17 @@ class CentroidTracker {
 
   /**
    * Greedy matching: for each detection, find the closest track within maxDistance.
+   * Optionally restrict to a subset of detection indices (for BYTE-style stages).
    */
-  _greedyMatch(trackIds, trackCentroids, incoming) {
+  _greedyMatch(trackIds, trackCentroids, incoming, detIndices) {
     const usedTracks = new Set();
     const usedDets = new Set();
     const matches = [];
 
     // Build distance matrix
     const pairs = [];
-    for (let d = 0; d < incoming.length; d++) {
+    const detList = detIndices || incoming.map((_, idx) => idx);
+    for (const d of detList) {
       for (let t = 0; t < trackIds.length; t++) {
         const dx = incoming[d].cx - trackCentroids[t].cx;
         const dy = incoming[d].cy - trackCentroids[t].cy;
@@ -237,7 +303,7 @@ class CentroidTracker {
 
     const unmatchedTracks = trackIds.filter((_, i) => !usedTracks.has(i));
     const unmatchedDets = [];
-    for (let d = 0; d < incoming.length; d++) {
+    for (const d of detList) {
       if (!usedDets.has(d)) unmatchedDets.push(d);
     }
 

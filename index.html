@@ -156,6 +156,32 @@
         </div>
       </div>
 
+      <!-- Multi-photo dedup settings -->
+      <div class="settings__section">
+        <label class="settings__label settings__label--section">Counting 4 Sisi</label>
+        <p class="settings__hint">Pengaturan deduplikasi antar foto agar mengurangi hitung dobel.</p>
+      </div>
+      <div class="settings__grid">
+        <div class="settings__section">
+          <label class="settings__label">Auto Merge Threshold</label>
+          <p class="settings__desc">Jika skor kemiripan di atas nilai ini, sistem otomatis anggap tandan yang sama.</p>
+          <div class="slider-row">
+            <input type="range" id="slider-tree-auto-merge" class="slider" min="0.70" max="0.98" step="0.01" value="0.82">
+            <input type="number" id="input-tree-auto-merge" class="input-num" min="0.70" max="0.98" step="0.01" value="0.82">
+          </div>
+          <div class="slider__labels"><span>0.70</span><span>0.98</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Ambiguous Threshold</label>
+          <p class="settings__desc">Skor minimum agar pasangan masuk review manual. Di bawah ini langsung dianggap berbeda.</p>
+          <div class="slider-row">
+            <input type="range" id="slider-tree-ambiguous" class="slider" min="0.40" max="0.90" step="0.01" value="0.68">
+            <input type="number" id="input-tree-ambiguous" class="input-num" min="0.40" max="0.90" step="0.01" value="0.68">
+          </div>
+          <div class="slider__labels"><span>0.40</span><span>0.90</span></div>
+        </div>
+      </div>
+
       <!-- Reset -->
       <button id="btn-reset-settings" class="btn btn--ghost btn--sm btn--full" style="margin-top:var(--space-sm)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>
@@ -179,6 +205,15 @@
       </div>
     </section>
 
+    <section class="mode-switch">
+      <div class="mode-switch__group">
+        <button id="btn-mode-single" class="btn btn--outline btn--sm mode-switch__btn mode-switch__btn--active">Deteksi File Tunggal</button>
+        <button id="btn-mode-tree" class="btn btn--outline btn--sm mode-switch__btn">Hitung 1 Pohon (4 Foto)</button>
+      </div>
+      <p class="mode-switch__hint">Mode 4 sisi membantu menekan overcount antar foto dari pohon yang sama.</p>
+    </section>
+
+    <div id="single-mode-root">
     <!-- API Key Warning -->
     <div id="apikey-warning" class="notice notice--warn">
       <div class="notice__icon">
@@ -335,6 +370,167 @@
         <p id="error-message"></p>
       </div>
     </div>
+    </div>
+
+    <div id="tree-mode-root" class="hidden">
+      <div id="tree-apikey-warning" class="notice notice--warn">
+        <div class="notice__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        </div>
+        <div>
+          <strong>API Key belum dikonfigurasi</strong>
+          <p>Buka pengaturan untuk memasukkan API key Ultralytics Anda.</p>
+        </div>
+      </div>
+
+      <section class="card tree-card">
+        <div class="card__header">
+          <div>
+            <h3 class="tree-card__title">Wizard 4 Sisi Pohon</h3>
+            <p class="tree-card__sub">Ambil/upload sisi depan, kanan, belakang, kiri untuk deduplikasi lintas foto.</p>
+          </div>
+        </div>
+        <div class="tree-card__body">
+          <div id="tree-side-pills" class="tree-pills">
+            <button class="tree-pill" data-side-index="0">1. Depan</button>
+            <button class="tree-pill" data-side-index="1">2. Kanan</button>
+            <button class="tree-pill" data-side-index="2">3. Belakang</button>
+            <button class="tree-pill" data-side-index="3">4. Kiri</button>
+          </div>
+
+          <div class="tree-capture">
+            <div class="tree-capture__preview">
+              <img id="tree-current-preview" class="hidden" alt="Preview sisi aktif">
+              <div id="tree-empty-state" class="tree-empty">Belum ada foto untuk sisi ini.</div>
+            </div>
+            <div class="tree-capture__meta">
+              <p class="tree-capture__label">Sisi aktif: <strong id="tree-current-side-label">Depan</strong></p>
+              <p class="tree-capture__hint">Gunakan sudut sekitar 90 derajat antar sisi. Jaga jarak kamera konsisten untuk meminimalkan hitung dobel.</p>
+            </div>
+            <div class="tree-capture__actions">
+              <button id="btn-tree-pick" class="btn btn--outline btn--sm">Upload Foto Sisi Aktif</button>
+              <button id="btn-tree-next" class="btn btn--ghost btn--sm" disabled>Lanjut Sisi Berikutnya</button>
+              <button id="btn-tree-reset" class="btn btn--ghost btn--sm">Reset Sesi</button>
+            </div>
+            <input type="file" id="tree-file-input" class="sr-only" accept="image/*">
+          </div>
+
+          <div id="tree-side-grid" class="tree-side-grid"></div>
+          <button id="btn-tree-process" class="btn btn--primary btn--lg btn--full" disabled>Proses Counting 4 Sisi</button>
+        </div>
+      </section>
+
+      <section id="tree-review-section" class="card hidden">
+        <div class="card__header">
+          <div>
+            <h3 class="tree-card__title">Review Ambigu</h3>
+            <p id="tree-review-progress" class="tree-card__sub">Pasangan 1 / 1</p>
+          </div>
+        </div>
+        <div class="tree-review">
+          <div class="tree-review__item">
+            <span class="tree-review__label" id="tree-review-side-a"></span>
+            <canvas id="tree-review-canvas-a" aria-label="Review sisi A"></canvas>
+          </div>
+          <div class="tree-review__item">
+            <span class="tree-review__label" id="tree-review-side-b"></span>
+            <canvas id="tree-review-canvas-b" aria-label="Review sisi B"></canvas>
+          </div>
+        </div>
+        <p id="tree-review-meta" class="tree-review__meta"></p>
+        <div class="tree-review__actions">
+          <button id="btn-review-merge" class="btn btn--primary btn--sm">Sama Tandan</button>
+          <button id="btn-review-separate" class="btn btn--outline btn--sm">Berbeda</button>
+          <button id="btn-review-skip" class="btn btn--ghost btn--sm">Sisa Anggap Berbeda</button>
+        </div>
+      </section>
+
+      <section id="tree-loading-section" class="hidden">
+        <div class="card card--center">
+          <div class="loader">
+            <div class="loader__ring"></div>
+            <div class="loader__ring"></div>
+            <div class="loader__ring"></div>
+          </div>
+          <h3 class="loader__text" id="tree-loading-text">Menganalisis...</h3>
+          <p class="loader__sub" id="tree-loading-sub">Model AI sedang memproses 4 sisi.</p>
+          <div id="tree-loading-progress" class="progress hidden">
+            <div class="progress__bar" id="tree-loading-progress-bar"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tree-results-section" class="results hidden">
+        <div class="results__header">
+          <div>
+            <h2 class="results__title">Hasil Counting 4 Sisi</h2>
+            <span id="tree-result-badge" class="results__count"></span>
+          </div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat__value" id="tree-unique-count">0</span>
+            <span class="stat__label">Tandan Unik</span>
+          </div>
+          <div class="stat">
+            <span class="stat__value" id="tree-raw-count">0</span>
+            <span class="stat__label">Deteksi Mentah</span>
+          </div>
+          <div class="stat">
+            <span class="stat__value" id="tree-merge-count">0</span>
+            <span class="stat__label">Merge Deduplikasi</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-header">
+            <h3>Ringkasan Per Sisi</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Sisi</th>
+                  <th>Jumlah Deteksi</th>
+                  <th>Avg Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="tree-side-summary-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-header">
+            <h3>Cluster Tandan Unik</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Cluster</th>
+                  <th>Jumlah Anggota</th>
+                  <th>Sisi Terlibat</th>
+                  <th>Avg Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="tree-cluster-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div id="tree-error-section" class="notice notice--error hidden">
+        <div class="notice__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        </div>
+        <div>
+          <strong>Terjadi Kesalahan</strong>
+          <p id="tree-error-message"></p>
+        </div>
+      </div>
+    </div>
 
   </main>
 
@@ -350,6 +546,9 @@
   <script src="js/api.js"></script>
   <script src="js/canvas.js"></script>
   <script src="js/tracker.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/deduper.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/tree-mode.js"></script>
 </body>
 </html>
