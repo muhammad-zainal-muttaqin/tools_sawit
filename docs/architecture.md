@@ -38,6 +38,8 @@ Frontend menambahkan logika produk agar hasil menjadi **counting unik** lintas 4
 
 ## 4) Data Flow End-to-End
 
+### 4A. Flow Mode 4 Sisi
+
 ```mermaid
 sequenceDiagram
   participant U as User
@@ -63,6 +65,26 @@ sequenceDiagram
   UI->>D: Resolve + union-find clustering
   D-->>UI: unique count + summary
   UI->>U: Hasil akhir counting
+```
+
+### 4B. Flow Mode File Tunggal (Gambar/Video)
+
+```mermaid
+flowchart LR
+  A[User Upload File Tunggal] --> B{Gambar atau Video}
+  B -->|Gambar| C[Predict 1x ke Backend YOLO]
+  B -->|Video| D[Extract Frame Client-side]
+  D --> E[Predict per Frame ke Backend YOLO]
+  C --> F[Deteksi Mentah]
+  E --> F
+  F --> G{Postprocess BBox Dedup enabled?}
+  G -->|Ya| H[Class-aware NMS + Containment]
+  G -->|Tidak| I[Bypass Postprocess]
+  H --> J{Video?}
+  I --> J
+  J -->|Ya| K[Centroid Tracker + Unique Count]
+  J -->|Tidak| L[Render Canvas + Tabel Deteksi]
+  K --> M[Render Frame Viewer + Statistik]
 ```
 
 ## 5) Dedup Policy (Kunci Akurasi)

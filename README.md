@@ -38,6 +38,26 @@ flowchart LR
   I --> J[Unique Count + Ringkasan Kelas + Cluster]
 ```
 
+## Ringkasan Flow File Tunggal
+
+```mermaid
+flowchart LR
+  A[Upload File Tunggal] --> B{Jenis File}
+  B -->|Gambar| C[Predict ke Backend YOLO]
+  B -->|Video| D[Ekstrak Frame]
+  D --> E[Predict per Frame ke Backend YOLO]
+  C --> F[Deteksi Mentah]
+  E --> F
+  F --> G{Postprocess BBox Dedup Aktif?}
+  G -->|Ya| H[Class-aware NMS + Containment]
+  G -->|Tidak| I[Gunakan Deteksi Mentah]
+  H --> J{Mode Video?}
+  I --> J
+  J -->|Ya| K[Tracking Antar Frame]
+  J -->|Tidak| L[Render Hasil Gambar]
+  K --> M[Render Hasil Video + Statistik]
+```
+
 ## Standard Output (User-Facing)
 
 Mode 4 sisi:
