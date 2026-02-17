@@ -11,9 +11,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const sliderConf = document.getElementById('slider-conf');
   const sliderIou = document.getElementById('slider-iou');
   const sliderImgsz = document.getElementById('slider-imgsz');
-  const confValue = document.getElementById('conf-value');
-  const iouValue = document.getElementById('iou-value');
-  const imgszValue = document.getElementById('imgsz-value');
+  const inputConf = document.getElementById('input-conf');
+  const inputIou = document.getElementById('input-iou');
+  const inputImgsz = document.getElementById('input-imgsz');
   const uploadZone = document.getElementById('upload-zone');
   const fileInput = document.getElementById('file-input');
   const previewSection = document.getElementById('preview-section');
@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let videoFrameResults = [];
   let currentFrameIndex = 0;
 
+  const DEFAULTS = { conf: 0.25, iou: 0.45, imgsz: 640 };
+
+  const btnResetSettings = document.getElementById('btn-reset-settings');
+
   // Create settings overlay
   const overlay = document.createElement('div');
   overlay.className = 'settings-overlay';
@@ -72,25 +76,61 @@ document.addEventListener('DOMContentLoaded', () => {
     sliderConf.value = settings.conf;
     sliderIou.value = settings.iou;
     sliderImgsz.value = settings.imgsz;
-    confValue.textContent = settings.conf;
-    iouValue.textContent = settings.iou;
-    imgszValue.textContent = settings.imgsz;
+    inputConf.value = settings.conf;
+    inputIou.value = settings.iou;
+    inputImgsz.value = settings.imgsz;
 
     if (ApiService.hasApiKey()) {
       inputApiKey.value = ApiService.getApiKey();
     }
   }
 
+  // Helper: clamp value to min/max/step of a slider
+  function clampToSlider(slider, raw) {
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const step = parseFloat(slider.step);
+    let v = parseFloat(raw);
+    if (isNaN(v)) v = min;
+    v = Math.max(min, Math.min(max, v));
+    // Snap to step
+    v = Math.round((v - min) / step) * step + min;
+    // Fix floating-point
+    const decimals = (slider.step.split('.')[1] || '').length;
+    return parseFloat(v.toFixed(decimals));
+  }
+
+  // Sync: slider -> number input
   sliderConf.addEventListener('input', () => {
-    confValue.textContent = sliderConf.value;
+    inputConf.value = sliderConf.value;
     saveCurrentSettings();
   });
   sliderIou.addEventListener('input', () => {
-    iouValue.textContent = sliderIou.value;
+    inputIou.value = sliderIou.value;
     saveCurrentSettings();
   });
   sliderImgsz.addEventListener('input', () => {
-    imgszValue.textContent = sliderImgsz.value;
+    inputImgsz.value = sliderImgsz.value;
+    saveCurrentSettings();
+  });
+
+  // Sync: number input -> slider (on change/blur)
+  inputConf.addEventListener('change', () => {
+    const v = clampToSlider(sliderConf, inputConf.value);
+    inputConf.value = v;
+    sliderConf.value = v;
+    saveCurrentSettings();
+  });
+  inputIou.addEventListener('change', () => {
+    const v = clampToSlider(sliderIou, inputIou.value);
+    inputIou.value = v;
+    sliderIou.value = v;
+    saveCurrentSettings();
+  });
+  inputImgsz.addEventListener('change', () => {
+    const v = clampToSlider(sliderImgsz, inputImgsz.value);
+    inputImgsz.value = v;
+    sliderImgsz.value = v;
     saveCurrentSettings();
   });
 
@@ -101,6 +141,17 @@ document.addEventListener('DOMContentLoaded', () => {
       imgsz: sliderImgsz.value,
     });
   }
+
+  // --- Reset to Defaults ---
+  btnResetSettings.addEventListener('click', () => {
+    sliderConf.value = DEFAULTS.conf;
+    sliderIou.value = DEFAULTS.iou;
+    sliderImgsz.value = DEFAULTS.imgsz;
+    inputConf.value = DEFAULTS.conf;
+    inputIou.value = DEFAULTS.iou;
+    inputImgsz.value = DEFAULTS.imgsz;
+    saveCurrentSettings();
+  });
 
   // --- API Key ---
   btnToggleKey.addEventListener('click', () => {

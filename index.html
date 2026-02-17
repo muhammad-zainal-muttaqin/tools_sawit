@@ -75,21 +75,36 @@
       <!-- Sliders -->
       <div class="settings__grid">
         <div class="settings__section">
-          <label class="settings__label">Confidence <span id="conf-value" class="settings__val">0.25</span></label>
-          <input type="range" id="slider-conf" class="slider" min="0.01" max="1" step="0.01" value="0.25">
+          <label class="settings__label">Confidence</label>
+          <div class="slider-row">
+            <input type="range" id="slider-conf" class="slider" min="0.01" max="1" step="0.01" value="0.25">
+            <input type="number" id="input-conf" class="input-num" min="0.01" max="1" step="0.01" value="0.25">
+          </div>
           <div class="slider__labels"><span>0.01</span><span>1.0</span></div>
         </div>
         <div class="settings__section">
-          <label class="settings__label">IoU Threshold <span id="iou-value" class="settings__val">0.45</span></label>
-          <input type="range" id="slider-iou" class="slider" min="0" max="0.95" step="0.05" value="0.45">
+          <label class="settings__label">IoU Threshold</label>
+          <div class="slider-row">
+            <input type="range" id="slider-iou" class="slider" min="0" max="0.95" step="0.05" value="0.45">
+            <input type="number" id="input-iou" class="input-num" min="0" max="0.95" step="0.05" value="0.45">
+          </div>
           <div class="slider__labels"><span>0</span><span>0.95</span></div>
         </div>
         <div class="settings__section">
-          <label class="settings__label">Image Size <span id="imgsz-value" class="settings__val">640</span></label>
-          <input type="range" id="slider-imgsz" class="slider" min="32" max="1280" step="32" value="640">
+          <label class="settings__label">Image Size</label>
+          <div class="slider-row">
+            <input type="range" id="slider-imgsz" class="slider" min="32" max="1280" step="32" value="640">
+            <input type="number" id="input-imgsz" class="input-num" min="32" max="1280" step="32" value="640">
+          </div>
           <div class="slider__labels"><span>32</span><span>1280</span></div>
         </div>
       </div>
+
+      <!-- Reset -->
+      <button id="btn-reset-settings" class="btn btn--ghost btn--sm btn--full" style="margin-top:var(--space-sm)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>
+        <span>Reset ke Default</span>
+      </button>
     </div>
   </div>
 
