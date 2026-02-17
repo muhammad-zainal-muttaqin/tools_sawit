@@ -50,6 +50,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const btnResetSettings = document.getElementById('btn-reset-settings');
 
+  // --- Tracker UI Elements ---
+  const sliderTrackConf = document.getElementById('slider-track-conf');
+  const inputTrackConf = document.getElementById('input-track-conf');
+  const sliderNmsIou = document.getElementById('slider-nms-iou');
+  const inputNmsIou = document.getElementById('input-nms-iou');
+  const sliderMaxDist = document.getElementById('slider-max-dist');
+  const inputMaxDist = document.getElementById('input-max-dist');
+  const sliderMaxAge = document.getElementById('slider-max-age');
+  const inputMaxAge = document.getElementById('input-max-age');
+  const sliderMinHits = document.getElementById('slider-min-hits');
+  const inputMinHits = document.getElementById('input-min-hits');
+
   // Create settings overlay
   const overlay = document.createElement('div');
   overlay.className = 'settings-overlay';
@@ -72,18 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
   btnSettings.addEventListener('click', openSettings);
   btnCloseSettings.addEventListener('click', closeSettings);
   overlay.addEventListener('click', closeSettings);
-
-  // --- Tracker UI Elements ---
-  const sliderTrackConf = document.getElementById('slider-track-conf');
-  const inputTrackConf = document.getElementById('input-track-conf');
-  const sliderNmsIou = document.getElementById('slider-nms-iou');
-  const inputNmsIou = document.getElementById('input-nms-iou');
-  const sliderMaxDist = document.getElementById('slider-max-dist');
-  const inputMaxDist = document.getElementById('input-max-dist');
-  const sliderMaxAge = document.getElementById('slider-max-age');
-  const inputMaxAge = document.getElementById('input-max-age');
-  const sliderMinHits = document.getElementById('slider-min-hits');
-  const inputMinHits = document.getElementById('input-min-hits');
 
   function getTrackerSettings() {
     try {
