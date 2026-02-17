@@ -4,8 +4,8 @@ Frontend app untuk inferensi deteksi tandan sawit + counting unik lintas 4 foto 
 
 ## Dokumentasi
 
-- Arsitektur dan flow lengkap: `docs/architecture.md`
-- Panduan tuning akurasi counting: `docs/tuning-guide.md`
+- [Arsitektur dan flow lengkap](docs/architecture.md)
+- [Panduan tuning akurasi counting](docs/tuning-guide.md)
 
 ## Ringkasan Alur
 
