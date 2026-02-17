@@ -16,6 +16,7 @@ Frontend app untuk deteksi tandan sawit dari endpoint Ultralytics (YOLO) dengan 
 - Warna kelas diselaraskan antar mode 4 sisi dan mode video agar tidak membingungkan user.
 - Review ambigu menggunakan full-frame (bukan crop) agar keputusan manusia lebih kontekstual.
 - Dedup 4 sisi tetap memakai kebijakan `adjacent-side only` untuk menekan false match ekstrem.
+- Ditambahkan konfigurasi sidebar `Deduplikasi Bounding Box (Semua Mode)` untuk mengurangi box ganda overlap/geser tipis.
 
 ## Ringkasan Flow 4 Sisi
 
@@ -23,7 +24,10 @@ Frontend app untuk deteksi tandan sawit dari endpoint Ultralytics (YOLO) dengan 
 flowchart LR
   A[Upload 4 Sisi] --> B[Predict Sequential ke Backend YOLO]
   B --> C[Deteksi per Sisi]
-  C --> D[Dedup Adjacent Side Only]
+  C --> C1{Postprocess BBox Dedup Aktif?}
+  C1 -->|Ya| C2[Class-aware NMS + Containment]
+  C1 -->|Tidak| D[Dedup Adjacent Side Only]
+  C2 --> D
   D --> E{Score}
   E -->|>= autoMergeMin| F[Auto Merge]
   E -->|antara threshold| G[Review Ambigu User]
@@ -48,6 +52,19 @@ Mode video:
 - `Frame Diproses`
 - `Avg Confidence`
 - tabel deteksi frame dengan `kelas` + warna konsisten
+
+## Konfigurasi Baru (Sidebar)
+
+Bagian `Deduplikasi Bounding Box (Semua Mode)` berlaku untuk:
+- `Deteksi File Tunggal` (gambar/video),
+- `Hitung 1 Pohon (4 Foto)`.
+
+Parameter:
+- `Aktifkan deduplikasi box setelah inferensi`
+- `Post NMS IoU` (default `0.45`)
+- `Containment Threshold` (default `0.82`)
+
+Semua disimpan di `localStorage` key `sawitai_postprocess`.
 
 ## Menjalankan Lokal
 

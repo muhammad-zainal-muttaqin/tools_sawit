@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // - maxAge sedikit diturunkan agar track cepat drop saat hilang
   const TRACKER_DEFAULTS = { trackConf: 0.35, nmsIou: 0.50, maxDist: 8, maxAge: 4, minHits: 2 };
   const TREE_COUNT_DEFAULTS = { autoMergeMin: 0.82, ambiguousMin: 0.68 };
+  const POSTPROCESS_DEFAULTS = { enabled: true, iou: 0.45, containment: 0.82 };
 
   const btnResetSettings = document.getElementById('btn-reset-settings');
 
@@ -71,6 +72,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputTreeAutoMerge = document.getElementById('input-tree-auto-merge');
   const sliderTreeAmbiguous = document.getElementById('slider-tree-ambiguous');
   const inputTreeAmbiguous = document.getElementById('input-tree-ambiguous');
+  const inputPostDedupEnable = document.getElementById('input-post-dedup-enable');
+  const sliderPostDedupIou = document.getElementById('slider-post-dedup-iou');
+  const inputPostDedupIou = document.getElementById('input-post-dedup-iou');
+  const sliderPostDedupContainment = document.getElementById('slider-post-dedup-containment');
+  const inputPostDedupContainment = document.getElementById('input-post-dedup-containment');
 
   // Create settings overlay
   const overlay = document.createElement('div');
@@ -125,6 +131,31 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('sawitai_tree_count', JSON.stringify(s));
   }
 
+  function getPostprocessSettings() {
+    try {
+      const raw = localStorage.getItem('sawitai_postprocess');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        let iou = parseFloat(parsed.iou ?? POSTPROCESS_DEFAULTS.iou);
+        let containment = parseFloat(parsed.containment ?? POSTPROCESS_DEFAULTS.containment);
+        if (!Number.isFinite(iou)) iou = POSTPROCESS_DEFAULTS.iou;
+        if (!Number.isFinite(containment)) containment = POSTPROCESS_DEFAULTS.containment;
+        iou = Math.max(0.30, Math.min(0.85, iou));
+        containment = Math.max(0.60, Math.min(0.98, containment));
+        return {
+          enabled: parsed.enabled !== false,
+          iou,
+          containment,
+        };
+      }
+    } catch (_) {}
+    return { ...POSTPROCESS_DEFAULTS };
+  }
+
+  function savePostprocessSettings(s) {
+    localStorage.setItem('sawitai_postprocess', JSON.stringify(s));
+  }
+
   function initSettings() {
     const settings = ApiService.getSettings();
     sliderConf.value = settings.conf;
@@ -153,6 +184,13 @@ document.addEventListener('DOMContentLoaded', () => {
     sliderTreeAmbiguous.value = tcs.ambiguousMin;
     inputTreeAmbiguous.value = tcs.ambiguousMin;
     normalizeTreeThresholds();
+
+    const ps = getPostprocessSettings();
+    if (inputPostDedupEnable) inputPostDedupEnable.checked = !!ps.enabled;
+    if (sliderPostDedupIou) sliderPostDedupIou.value = ps.iou;
+    if (inputPostDedupIou) inputPostDedupIou.value = ps.iou;
+    if (sliderPostDedupContainment) sliderPostDedupContainment.value = ps.containment;
+    if (inputPostDedupContainment) inputPostDedupContainment.value = ps.containment;
 
     if (ApiService.hasApiKey()) {
       inputApiKey.value = ApiService.getApiKey();
@@ -270,6 +308,25 @@ document.addEventListener('DOMContentLoaded', () => {
   syncTreePair(sliderTreeAutoMerge, inputTreeAutoMerge, 'auto');
   syncTreePair(sliderTreeAmbiguous, inputTreeAmbiguous, 'ambiguous');
 
+  function syncPostprocessPair(slider, input) {
+    if (!slider || !input) return;
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+      saveCurrentPostprocessSettings();
+    });
+    input.addEventListener('change', () => {
+      const v = clampToSlider(slider, input.value);
+      input.value = v;
+      slider.value = v;
+      saveCurrentPostprocessSettings();
+    });
+  }
+  syncPostprocessPair(sliderPostDedupIou, inputPostDedupIou);
+  syncPostprocessPair(sliderPostDedupContainment, inputPostDedupContainment);
+  if (inputPostDedupEnable) {
+    inputPostDedupEnable.addEventListener('change', saveCurrentPostprocessSettings);
+  }
+
   function saveCurrentTrackerSettings() {
     saveTrackerSettings({
       trackConf: parseFloat(sliderTrackConf.value),
@@ -284,6 +341,14 @@ document.addEventListener('DOMContentLoaded', () => {
     saveTreeCountSettings({
       autoMergeMin: parseFloat(sliderTreeAutoMerge.value),
       ambiguousMin: parseFloat(sliderTreeAmbiguous.value),
+    });
+  }
+
+  function saveCurrentPostprocessSettings() {
+    savePostprocessSettings({
+      enabled: !!(inputPostDedupEnable && inputPostDedupEnable.checked),
+      iou: parseFloat(sliderPostDedupIou ? sliderPostDedupIou.value : POSTPROCESS_DEFAULTS.iou),
+      containment: parseFloat(sliderPostDedupContainment ? sliderPostDedupContainment.value : POSTPROCESS_DEFAULTS.containment),
     });
   }
 
@@ -324,6 +389,13 @@ document.addEventListener('DOMContentLoaded', () => {
     inputTreeAmbiguous.value = TREE_COUNT_DEFAULTS.ambiguousMin;
     normalizeTreeThresholds();
     saveCurrentTreeCountSettings();
+
+    if (inputPostDedupEnable) inputPostDedupEnable.checked = POSTPROCESS_DEFAULTS.enabled;
+    if (sliderPostDedupIou) sliderPostDedupIou.value = POSTPROCESS_DEFAULTS.iou;
+    if (inputPostDedupIou) inputPostDedupIou.value = POSTPROCESS_DEFAULTS.iou;
+    if (sliderPostDedupContainment) sliderPostDedupContainment.value = POSTPROCESS_DEFAULTS.containment;
+    if (inputPostDedupContainment) inputPostDedupContainment.value = POSTPROCESS_DEFAULTS.containment;
+    saveCurrentPostprocessSettings();
   });
 
   // --- API Key ---
@@ -564,20 +636,30 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function parseDetections(result) {
+    let detections = [];
     if (result && result.images && Array.isArray(result.images)) {
-      return result.images[0].results || result.images[0].detections || [];
+      detections = result.images[0].results || result.images[0].detections || [];
     } else if (result && result.results && Array.isArray(result.results)) {
-      return result.results;
+      detections = result.results;
     } else if (Array.isArray(result)) {
-      return result;
+      detections = result;
     } else if (result && result.data) {
       if (Array.isArray(result.data)) {
-        return result.data;
+        detections = result.data;
       } else if (result.data.images) {
-        return result.data.images[0].results || [];
+        detections = result.data.images[0].results || [];
       }
     }
-    return [];
+    if (!Array.isArray(detections) || detections.length <= 1) return Array.isArray(detections) ? detections : [];
+    if (typeof DetectionPostProcessor === 'undefined' || !DetectionPostProcessor) return detections;
+
+    const pp = getPostprocessSettings();
+    if (!pp.enabled) return detections;
+
+    return DetectionPostProcessor.deduplicateDetections(detections, {
+      iouThreshold: pp.iou,
+      containmentThreshold: pp.containment,
+    });
   }
 
   function showImageResults(detections) {

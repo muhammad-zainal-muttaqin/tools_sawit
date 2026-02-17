@@ -311,6 +311,21 @@ input { font-family: inherit; }
   gap: var(--space-lg);
 }
 
+.settings__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.settings__toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--c-accent);
+}
+
 /* ---- Input ---- */
 .input-group {
   display: flex;

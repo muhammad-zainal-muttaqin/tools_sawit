@@ -14,6 +14,7 @@ Frontend menambahkan logika produk agar hasil menjadi **counting unik** lintas 4
 ### Frontend (App)
 - wizard input 4 sisi (Depan, Kanan, Belakang, Kiri),
 - inferensi batch sequential ke backend,
+- deduplikasi bounding box pasca-inferensi (single, video, dan 4 sisi),
 - deduplikasi lintas sisi,
 - review ambigu oleh user,
 - agregasi cluster objek unik, kelas dominan cluster, dan summary final.
@@ -53,6 +54,8 @@ sequenceDiagram
   API-->>UI: Detections sisi 3
   UI->>API: Predict foto sisi 4
   API-->>UI: Detections sisi 4
+  UI->>UI: Cek setting postprocess bbox dedup (enabled/disabled)
+  UI->>UI: Jika enabled -> class-aware NMS + containment
   UI->>D: Build evidence + scoring pair kandidat
   D-->>UI: auto merge + ambiguous pairs
   UI->>U: Tampilkan review ambigu (full-frame + highlight bbox)
@@ -123,6 +126,10 @@ Catatan implementasi:
 Disimpan di `localStorage`:
 - inferensi model (`conf`, `iou`, `imgsz`)
 - tracker video
+- deduplikasi bbox pasca-inferensi (`sawitai_postprocess`):
+  - `enabled`
+  - `iou`
+  - `containment`
 - dedup 4 sisi (`sawitai_tree_count`):
   - `autoMergeMin`
   - `ambiguousMin`

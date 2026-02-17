@@ -182,6 +182,38 @@
         </div>
       </div>
 
+      <!-- Box dedup settings -->
+      <div class="settings__section">
+        <label class="settings__label settings__label--section">Deduplikasi Bounding Box (Semua Mode)</label>
+        <p class="settings__hint">Mengurangi box ganda yang overlap/bergeser tipis pada deteksi gambar, video, dan mode 4 sisi.</p>
+      </div>
+      <div class="settings__grid">
+        <div class="settings__section">
+          <label class="settings__toggle">
+            <input type="checkbox" id="input-post-dedup-enable" checked>
+            <span>Aktifkan deduplikasi box setelah inferensi</span>
+          </label>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Post NMS IoU</label>
+          <p class="settings__desc">Lebih rendah = lebih agresif menghapus box overlap. Mulai dari 0.45 lalu sesuaikan.</p>
+          <div class="slider-row">
+            <input type="range" id="slider-post-dedup-iou" class="slider" min="0.30" max="0.85" step="0.01" value="0.45">
+            <input type="number" id="input-post-dedup-iou" class="input-num" min="0.30" max="0.85" step="0.01" value="0.45">
+          </div>
+          <div class="slider__labels"><span>0.30</span><span>0.85</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Containment Threshold</label>
+          <p class="settings__desc">Lebih rendah = lebih agresif hapus box ganda. Lebih tinggi = lebih konservatif (lebih banyak box dipertahankan).</p>
+          <div class="slider-row">
+            <input type="range" id="slider-post-dedup-containment" class="slider" min="0.60" max="0.98" step="0.01" value="0.82">
+            <input type="number" id="input-post-dedup-containment" class="input-num" min="0.60" max="0.98" step="0.01" value="0.82">
+          </div>
+          <div class="slider__labels"><span>0.60</span><span>0.98</span></div>
+        </div>
+      </div>
+
       <!-- Reset -->
       <button id="btn-reset-settings" class="btn btn--ghost btn--sm btn--full" style="margin-top:var(--space-sm)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>
@@ -548,6 +580,7 @@
   <script src="js/api.js"></script>
   <script src="js/canvas.js"></script>
   <script src="js/tracker.js"></script>
+  <script src="js/postprocess.js"></script>
   <script src="js/session.js"></script>
   <script src="js/deduper.js"></script>
   <script src="js/app.js"></script>

@@ -25,6 +25,12 @@ Kedua parameter dedup bisa diatur dari menu konfigurasi.
 - `maxAge` / umur track tanpa update
 - `minHits` / minimal kemunculan sebelum dihitung unik
 
+### D. Deduplikasi Bounding Box (Semua Mode)
+
+- `enabled` / aktifkan dedup box pasca-inferensi
+- `Post NMS IoU` (`iou`) default `0.45`
+- `Containment Threshold` (`containment`) default `0.82`
+
 ## 2) Aturan Penting
 
 - `ambiguousMin` **harus selalu lebih kecil** dari `autoMergeMin`.
@@ -67,6 +73,16 @@ Ubah:
 - turunkan `ambiguousMin` sedikit agar kasus borderline langsung menjadi separate,
 - atau naikkan `autoMergeMin` jika ingin mempertahankan konservatif anti-overcount.
 
+### Kasus D: Banyak box dobel di objek yang sama (geser tipis)
+
+Ubah:
+- turunkan `Post NMS IoU` sedikit (`-0.02` sampai `-0.08`) agar box overlap lebih agresif digabung,
+- turunkan `Containment Threshold` sedikit (`-0.02` sampai `-0.08`) bila pola box cenderung saling menimpa.
+
+Efek:
+- box ganda berkurang,
+- terlalu agresif bisa menghapus objek yang sebenarnya berbeda tapi berdekatan.
+
 ## 5) Protokol Tuning yang Disarankan
 
 1. Siapkan set validasi kecil (mis. 20 pohon, masing-masing 4 sisi, ground truth count).
@@ -101,6 +117,7 @@ Jika hasil aneh:
 - cek jumlah deteksi mentah per sisi (terlalu rendah = masalah inferensi/capture),
 - cek apakah ambiguous review diselesaikan dengan benar,
 - cek `Ringkasan Kelas` untuk melihat apakah komposisi kelas masuk akal.
+- cek parameter `Deduplikasi Bounding Box` jika ada gejala box dobel.
 
 ## 8) Strategi Operasional
 

@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSaveKey = document.getElementById('btn-save-key');
   const sideLabels = window.TREE_SIDE_LABELS || ['Depan', 'Kanan', 'Belakang', 'Kiri'];
   const TREE_COUNT_DEFAULTS = { autoMergeMin: 0.82, ambiguousMin: 0.68 };
+  const POSTPROCESS_DEFAULTS = { enabled: true, iou: 0.45, containment: 0.82 };
 
   let mode = 'single';
   let currentSideIndex = 0;
@@ -78,6 +79,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (_) {}
     return { ...TREE_COUNT_DEFAULTS };
+  }
+
+  function getPostprocessSettings() {
+    try {
+      const raw = localStorage.getItem('sawitai_postprocess');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        let iou = Number(parsed.iou);
+        let containment = Number(parsed.containment);
+        if (!Number.isFinite(iou)) iou = POSTPROCESS_DEFAULTS.iou;
+        if (!Number.isFinite(containment)) containment = POSTPROCESS_DEFAULTS.containment;
+        iou = Math.max(0.30, Math.min(0.85, iou));
+        containment = Math.max(0.60, Math.min(0.98, containment));
+        return {
+          enabled: parsed.enabled !== false,
+          iou,
+          containment,
+        };
+      }
+    } catch (_) {}
+    return { ...POSTPROCESS_DEFAULTS };
   }
 
   function setMode(nextMode) {
@@ -175,20 +197,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function parseDetections(result) {
+    let detections = [];
     if (result && result.images && Array.isArray(result.images)) {
-      return result.images[0].results || result.images[0].detections || [];
+      detections = result.images[0].results || result.images[0].detections || [];
     }
-    if (result && result.results && Array.isArray(result.results)) {
-      return result.results;
+    if (!detections.length && result && result.results && Array.isArray(result.results)) {
+      detections = result.results;
     }
-    if (Array.isArray(result)) {
-      return result;
+    if (!detections.length && Array.isArray(result)) {
+      detections = result;
     }
-    if (result && result.data) {
-      if (Array.isArray(result.data)) return result.data;
-      if (result.data.images) return result.data.images[0].results || [];
+    if (!detections.length && result && result.data) {
+      if (Array.isArray(result.data)) detections = result.data;
+      else if (result.data.images) detections = result.data.images[0].results || [];
     }
-    return [];
+    if (!Array.isArray(detections) || detections.length <= 1) return Array.isArray(detections) ? detections : [];
+    if (typeof DetectionPostProcessor === 'undefined' || !DetectionPostProcessor) return detections;
+    const pp = getPostprocessSettings();
+    if (!pp.enabled) return detections;
+
+    return DetectionPostProcessor.deduplicateDetections(detections, {
+      iouThreshold: pp.iou,
+      containmentThreshold: pp.containment,
+    });
   }
 
   function getCanvasContext(canvas) {
