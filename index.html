@@ -223,6 +223,20 @@
 
       <!-- Video Result -->
       <div id="video-result" class="hidden">
+        <div id="video-summary" class="stats-row">
+          <div class="stat">
+            <span class="stat__value" id="unique-count">0</span>
+            <span class="stat__label">Tandan Unik</span>
+          </div>
+          <div class="stat">
+            <span class="stat__value" id="total-frames">0</span>
+            <span class="stat__label">Frame Diproses</span>
+          </div>
+          <div class="stat">
+            <span class="stat__value" id="avg-confidence">0%</span>
+            <span class="stat__label">Avg Confidence</span>
+          </div>
+        </div>
         <div class="card card--flush">
           <canvas id="video-result-canvas"></canvas>
           <div class="frame-nav">
@@ -243,6 +257,7 @@
             <thead>
               <tr>
                 <th>#</th>
+                <th>Track ID</th>
                 <th>Kelas</th>
                 <th>Confidence</th>
                 <th>Bounding Box</th>
@@ -278,6 +293,7 @@
 
   <script src="js/api.js"></script>
   <script src="js/canvas.js"></script>
+  <script src="js/tracker.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

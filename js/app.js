@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isImage = false;
   let videoFrameResults = [];
   let currentFrameIndex = 0;
+  let videoUniqueCount = 0;
 
   const DEFAULTS = { conf: 0.25, iou: 0.45, imgsz: 640 };
 
@@ -348,6 +349,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setLoadingState('Mendeteksi tandan...', `Frame 0 / ${frames.length}`, 0);
 
+        // Initialize tracker with adaptive distance threshold (~4% of frame diagonal)
+        const frameW = video.videoWidth;
+        const frameH = video.videoHeight;
+        const maxDist = Math.sqrt(frameW * frameW + frameH * frameH) * 0.04;
+        const tracker = new CentroidTracker({ maxDistance: maxDist, maxAge: 3 });
+
         const allFrameResults = [];
         const frameImages = []; // store blob URLs for drawing
 
@@ -361,11 +368,14 @@ document.addEventListener('DOMContentLoaded', () => {
           const file = new File([frames[i].blob], `frame_${i}.jpg`, { type: 'image/jpeg' });
           const result = await ApiService.predict(file);
           const detections = parseDetections(result);
-          allFrameResults.push(detections);
+
+          // Track detections — assigns trackId to each detection
+          const trackedDetections = tracker.update(detections);
+          allFrameResults.push(trackedDetections);
           frameImages.push(URL.createObjectURL(frames[i].blob));
         }
 
-        showVideoResults(allFrameResults, frameImages);
+        showVideoResults(allFrameResults, frameImages, tracker.getUniqueCount());
       }
     } catch (err) {
       showError(err.message || 'Terjadi kesalahan saat menghubungi server.');
@@ -406,14 +416,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let videoFrameImages = [];
 
-  function showVideoResults(frames, frameImageUrls) {
+  function showVideoResults(frames, frameImageUrls, uniqueCount) {
     videoFrameResults = frames;
     videoFrameImages = frameImageUrls || [];
+    videoUniqueCount = uniqueCount || 0;
     currentFrameIndex = 0;
 
     resultsSection.classList.remove('hidden');
     imageResult.classList.add('hidden');
     videoResult.classList.remove('hidden');
+
+    // Update summary stats
+    document.getElementById('unique-count').textContent = videoUniqueCount;
+    document.getElementById('total-frames').textContent = frames.length;
+
+    // Calculate average confidence across all detections
+    let totalConf = 0;
+    let totalDets = 0;
+    for (const frameDets of frames) {
+      for (const det of frameDets) {
+        const conf = det.confidence !== undefined ? det.confidence : det.conf;
+        if (conf !== undefined) {
+          totalConf += conf;
+          totalDets++;
+        }
+      }
+    }
+    const avgConf = totalDets > 0 ? (totalConf / totalDets * 100).toFixed(1) : '0';
+    document.getElementById('avg-confidence').textContent = avgConf + '%';
 
     updateFrameNavigation();
     renderCurrentVideoFrame();
@@ -422,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderCurrentVideoFrame() {
     const detections = videoFrameResults[currentFrameIndex] || [];
     const count = detections.length;
-    detectionCount.textContent = `${count} tandan terdeteksi (Frame ${currentFrameIndex + 1})`;
+    detectionCount.textContent = `${count} tandan di frame ini \u00B7 ${videoUniqueCount} tandan unik total`;
     fillDetectionTable(detections);
 
     // Draw from extracted frame image
@@ -471,9 +501,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function fillDetectionTable(detections) {
     detectionTableBody.innerHTML = '';
     if (!detections.length) {
-      detectionTableBody.innerHTML = '<tr><td colspan="4" style="padding:2rem;text-align:center;color:var(--c-text-dim);">Tidak ada tandan terdeteksi</td></tr>';
+      detectionTableBody.innerHTML = '<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--c-text-dim);">Tidak ada tandan terdeteksi</td></tr>';
       return;
     }
+
+    const hasTrackIds = detections.some(d => d.trackId !== undefined);
 
     detections.forEach((det, i) => {
       const name = det.name || String(det.class || 'object');
@@ -484,11 +516,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const x2 = Math.round(box.x2 !== undefined ? box.x2 : (box[2] || 0));
       const y2 = Math.round(box.y2 !== undefined ? box.y2 : (box[3] || 0));
       const confPct = (conf * 100).toFixed(1);
-      const color = CanvasRenderer.getColor(i % 10);
+      const color = hasTrackIds
+        ? CanvasRenderer.getTrackColor(det.trackId)
+        : CanvasRenderer.getColor(i % 10);
+      const trackIdDisplay = det.trackId !== undefined ? `#${det.trackId}` : '-';
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="mono">${i + 1}</td>
+        <td class="mono">${trackIdDisplay}</td>
         <td><div class="cell-class"><span class="color-dot" style="background:${color}"></span>${escapeHtml(name)}</div></td>
         <td><span class="conf-bar"><span class="conf-fill" style="width:${confPct}%;background:${color}"></span></span><span class="mono">${confPct}%</span></td>
         <td class="mono">[${x1}, ${y1}, ${x2}, ${y2}]</td>

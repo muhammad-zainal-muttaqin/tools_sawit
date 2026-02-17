@@ -4,8 +4,16 @@ const COLORS = [
 ];
 
 const CanvasRenderer = {
-  getColor(classIndex) {
-    return COLORS[classIndex % COLORS.length];
+  getColor(index) {
+    return COLORS[index % COLORS.length];
+  },
+
+  /**
+   * Get a stable color for a track ID (deterministic hash to color index).
+   */
+  getTrackColor(trackId) {
+    if (trackId === undefined || trackId === null) return COLORS[0];
+    return COLORS[trackId % COLORS.length];
   },
 
   drawImageWithBoxes(canvas, imageSrc, detections) {
@@ -42,14 +50,18 @@ const CanvasRenderer = {
   drawDetections(ctx, detections, canvasWidth, canvasHeight) {
     if (!detections || !detections.length) return;
 
-    const classMap = {};
+    // Fallback class-based color map for image mode (no trackId)
+    const hasTrackIds = detections.some(d => d.trackId !== undefined);
+    let classMap = {};
     let classIdx = 0;
-    detections.forEach(d => {
-      const cls = d.class !== undefined ? d.class : (d.name || 'object');
-      if (!(cls in classMap)) {
-        classMap[cls] = classIdx++;
-      }
-    });
+    if (!hasTrackIds) {
+      detections.forEach(d => {
+        const cls = d.class !== undefined ? d.class : (d.name || 'object');
+        if (!(cls in classMap)) {
+          classMap[cls] = classIdx++;
+        }
+      });
+    }
 
     detections.forEach((det) => {
       const box = det.box || det.bbox;
@@ -63,15 +75,20 @@ const CanvasRenderer = {
       const cls = det.class !== undefined ? det.class : (det.name || 'object');
       const name = det.name || String(cls);
       const conf = det.confidence !== undefined ? det.confidence : det.conf;
-      const color = this.getColor(classMap[cls] || 0);
+
+      // Color by track ID if available, otherwise by class
+      const color = hasTrackIds
+        ? this.getTrackColor(det.trackId)
+        : this.getColor(classMap[cls] || 0);
 
       const lineWidth = Math.max(2, Math.min(canvasWidth, canvasHeight) * 0.003);
       ctx.strokeStyle = color;
       ctx.lineWidth = lineWidth;
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-      // Label background
-      const label = `${name} ${(conf * 100).toFixed(1)}%`;
+      // Label: include track ID if available
+      const trackPrefix = det.trackId !== undefined ? `#${det.trackId} ` : '';
+      const label = `${trackPrefix}${name} ${(conf * 100).toFixed(1)}%`;
       const fontSize = Math.max(12, Math.min(canvasWidth, canvasHeight) * 0.018);
       ctx.font = `bold ${fontSize}px sans-serif`;
       const textMetrics = ctx.measureText(label);
