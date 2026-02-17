@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     videoResult.classList.add('hidden');
 
     const count = detections.length;
-    detectionCount.textContent = `${count} pohon terdeteksi`;
+    detectionCount.textContent = `${count} tandan terdeteksi`;
 
     const imgSrc = URL.createObjectURL(selectedFile);
     CanvasRenderer.drawImageWithBoxes(resultCanvas, imgSrc, detections);
@@ -383,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function fillDetectionTable(detections) {
     detectionTableBody.innerHTML = '';
     if (!detections.length) {
-      detectionTableBody.innerHTML = '<tr><td colspan="4" style="padding:2rem;text-align:center;color:var(--c-text-dim);">Tidak ada pohon sawit terdeteksi</td></tr>';
+      detectionTableBody.innerHTML = '<tr><td colspan="4" style="padding:2rem;text-align:center;color:var(--c-text-dim);">Tidak ada tandan terdeteksi</td></tr>';
       return;
     }
 
@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'hasil-deteksi-sawit.png';
+    a.download = 'hasil-deteksi-tandan-sawit.png';
     a.click();
     URL.revokeObjectURL(url);
   });
