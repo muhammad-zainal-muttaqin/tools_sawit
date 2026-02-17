@@ -8,12 +8,43 @@ const CanvasRenderer = {
     return COLORS[index % COLORS.length];
   },
 
+  normalizeClassKey(className) {
+    return String(className === undefined || className === null ? 'OBJECT' : className)
+      .trim()
+      .replace(/\s+/g, '')
+      .toUpperCase();
+  },
+
+  getClassColor(className) {
+    const key = this.normalizeClassKey(className);
+
+    // Explicit mapping for common oil-palm maturity classes.
+    const explicit = {
+      B0: '#22c55e',
+      B1: '#3b82f6',
+      B2: '#ef4444',
+      B3: '#f59e0b',
+      B4: '#8b5cf6',
+      B5: '#06b6d4',
+      B6: '#ec4899',
+    };
+    if (explicit[key]) return explicit[key];
+
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = ((hash << 5) - hash) + key.charCodeAt(i);
+      hash |= 0;
+    }
+    const idx = Math.abs(hash) % COLORS.length;
+    return COLORS[idx];
+  },
+
   /**
    * Get a stable color for a track ID (deterministic hash to color index).
    */
   getTrackColor(trackId) {
     if (trackId === undefined || trackId === null) return COLORS[0];
-    return COLORS[trackId % COLORS.length];
+    return COLORS[Math.abs(trackId) % COLORS.length];
   },
 
   drawImageWithBoxes(canvas, imageSrc, detections) {
@@ -50,19 +81,6 @@ const CanvasRenderer = {
   drawDetections(ctx, detections, canvasWidth, canvasHeight) {
     if (!detections || !detections.length) return;
 
-    // Fallback class-based color map for image mode (no trackId)
-    const hasTrackIds = detections.some(d => d.trackId !== undefined);
-    let classMap = {};
-    let classIdx = 0;
-    if (!hasTrackIds) {
-      detections.forEach(d => {
-        const cls = d.class !== undefined ? d.class : (d.name || 'object');
-        if (!(cls in classMap)) {
-          classMap[cls] = classIdx++;
-        }
-      });
-    }
-
     detections.forEach((det) => {
       const box = det.box || det.bbox;
       if (!box) return;
@@ -76,10 +94,8 @@ const CanvasRenderer = {
       const name = det.name || String(cls);
       const conf = det.confidence !== undefined ? det.confidence : det.conf;
 
-      // Color by track ID if available, otherwise by class
-      const color = hasTrackIds
-        ? this.getTrackColor(det.trackId)
-        : this.getColor(classMap[cls] || 0);
+      // Standardized: color always represents class across modes.
+      const color = this.getClassColor(name);
 
       const lineWidth = Math.max(2, Math.min(canvasWidth, canvasHeight) * 0.003);
       ctx.strokeStyle = color;
@@ -111,3 +127,7 @@ const CanvasRenderer = {
     });
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.CanvasRenderer = CanvasRenderer;
+}

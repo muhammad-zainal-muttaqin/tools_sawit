@@ -16,7 +16,7 @@ Frontend menambahkan logika produk agar hasil menjadi **counting unik** lintas 4
 - inferensi batch sequential ke backend,
 - deduplikasi lintas sisi,
 - review ambigu oleh user,
-- agregasi cluster objek unik dan summary final.
+- agregasi cluster objek unik, kelas dominan cluster, dan summary final.
 
 ## 3) Komponen Utama
 
@@ -111,8 +111,12 @@ Setelah keputusan merge:
   - total deteksi mentah,
   - total cluster unik,
   - jumlah merge,
-  - ringkasan per sisi,
-  - detail cluster.
+  - ringkasan kelas (`kelas`, `tandan unik`, `deteksi mentah`, `avg confidence`),
+  - detail cluster (`cluster`, `kelas dominan`, `jumlah anggota`, `sisi terlibat`, `avg confidence`).
+
+Catatan implementasi:
+- `ringkasan per sisi` masih bisa dihitung internal untuk debugging/tuning,
+- namun UI utama menampilkan `ringkasan kelas` karena lebih relevan untuk user.
 
 ## 8) Konfigurasi Persisten
 
@@ -128,3 +132,18 @@ Disimpan di `localStorage`:
 - identity matching masih heuristik (belum ReID model khusus),
 - kualitas capture sangat mempengaruhi akurasi,
 - belum ada global multi-view optimization (masih pairwise + union).
+
+## 10) Standarisasi Mode 4 Sisi vs Video
+
+Kedua mode punya engine berbeda:
+- mode 4 sisi: dedup lintas-view berbasis kemiripan visual + geometri + review ambigu,
+- mode video: tracking temporal antar frame.
+
+Karena mekanisme berbeda, akurasi terbaik tergantung skenario:
+- 1 pohon dengan 4 sisi terarah: mode 4 sisi biasanya lebih presisi anti-overcount,
+- alur sapuan panjang berbasis video: mode video lebih praktis operasional.
+
+Yang sudah distandarkan di UX:
+- istilah metrik utama (`unik`, `mentah`, `confidence`),
+- representasi kelas dengan warna konsisten,
+- tabel hasil yang langsung dapat dibaca untuk keputusan lapangan.

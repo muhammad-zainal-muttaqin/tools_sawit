@@ -684,8 +684,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const hasTrackIds = detections.some(d => d.trackId !== undefined);
-
     detections.forEach((det, i) => {
       const name = det.name || String(det.class || 'object');
       const conf = det.confidence !== undefined ? det.confidence : det.conf;
@@ -695,9 +693,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const x2 = Math.round(box.x2 !== undefined ? box.x2 : (box[2] || 0));
       const y2 = Math.round(box.y2 !== undefined ? box.y2 : (box[3] || 0));
       const confPct = (conf * 100).toFixed(1);
-      const color = hasTrackIds
-        ? CanvasRenderer.getTrackColor(det.trackId)
-        : CanvasRenderer.getColor(i % 10);
+      const color = CanvasRenderer.getClassColor(name);
       const trackIdDisplay = det.trackId !== undefined ? `#${det.trackId}` : '-';
 
       const tr = document.createElement('tr');

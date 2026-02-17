@@ -400,7 +400,7 @@
 
           <div class="tree-capture">
             <div class="tree-capture__preview">
-              <img id="tree-current-preview" class="hidden" alt="Preview sisi aktif">
+              <canvas id="tree-current-canvas" class="hidden" aria-label="Preview sisi aktif"></canvas>
               <div id="tree-empty-state" class="tree-empty">Belum ada foto untuk sisi ini.</div>
             </div>
             <div class="tree-capture__meta">
@@ -485,18 +485,19 @@
 
         <div class="card">
           <div class="table-header">
-            <h3>Ringkasan Per Sisi</h3>
+            <h3>Ringkasan Kelas</h3>
           </div>
           <div class="table-wrap">
             <table class="table">
               <thead>
                 <tr>
-                  <th>Sisi</th>
-                  <th>Jumlah Deteksi</th>
+                  <th>Kelas</th>
+                  <th>Tandan Unik</th>
+                  <th>Deteksi Mentah</th>
                   <th>Avg Confidence</th>
                 </tr>
               </thead>
-              <tbody id="tree-side-summary-body"></tbody>
+              <tbody id="tree-class-summary-body"></tbody>
             </table>
           </div>
         </div>
@@ -510,6 +511,7 @@
               <thead>
                 <tr>
                   <th>Cluster</th>
+                  <th>Kelas</th>
                   <th>Jumlah Anggota</th>
                   <th>Sisi Terlibat</th>
                   <th>Avg Confidence</th>

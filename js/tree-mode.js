@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnTreeReset = document.getElementById('btn-tree-reset');
   const btnTreeProcess = document.getElementById('btn-tree-process');
   const treeSidePills = document.getElementById('tree-side-pills');
-  const treeCurrentPreview = document.getElementById('tree-current-preview');
+  const treeCurrentCanvas = document.getElementById('tree-current-canvas');
   const treeCurrentSideLabel = document.getElementById('tree-current-side-label');
   const treeEmptyState = document.getElementById('tree-empty-state');
   const treeSideGrid = document.getElementById('tree-side-grid');
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const treeUniqueCount = document.getElementById('tree-unique-count');
   const treeRawCount = document.getElementById('tree-raw-count');
   const treeMergeCount = document.getElementById('tree-merge-count');
-  const treeSideSummaryBody = document.getElementById('tree-side-summary-body');
+  const treeClassSummaryBody = document.getElementById('tree-class-summary-body');
   const treeClusterBody = document.getElementById('tree-cluster-body');
 
   const treeErrorSection = document.getElementById('tree-error-section');
@@ -57,6 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let reviewIndex = 0;
   let reviewDecisions = {};
   let reviewRenderToken = 0;
+  let currentCanvasRenderToken = 0;
+  let gridCanvasRenderToken = 0;
 
   function getTreeCountSettings() {
     try {
@@ -118,9 +120,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const side = session.sides[currentSideIndex];
     treeCurrentSideLabel.textContent = side.label;
     const hasPreview = !!side.previewUrl;
-    treeCurrentPreview.classList.toggle('hidden', !hasPreview);
+    treeCurrentCanvas.classList.toggle('hidden', !hasPreview);
     treeEmptyState.classList.toggle('hidden', hasPreview);
-    treeCurrentPreview.src = hasPreview ? side.previewUrl : '';
+    if (hasPreview) {
+      const token = ++currentCanvasRenderToken;
+      drawSideCanvas(treeCurrentCanvas, side, {
+        token,
+        tokenType: 'current',
+        emphasizeLabels: true,
+        showLegend: true,
+        fitMode: 'contain',
+      });
+    } else {
+      clearCanvas(treeCurrentCanvas);
+    }
     btnTreeNext.disabled = !hasPreview || currentSideIndex >= 3;
   }
 
@@ -145,12 +158,13 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <div class="tree-side-card__preview">
             ${hasFile
-              ? `<img src="${side.previewUrl}" alt="Preview ${side.label}">`
+              ? `<canvas class="tree-side-card__canvas" data-side-index="${side.sideIndex}" aria-label="Preview ${side.label}"></canvas>`
               : '<span class="tree-side-card__placeholder">Belum ada foto</span>'}
           </div>
         </div>
       `;
     }).join('');
+    drawSideGridCanvases();
   }
 
   function renderWizard() {
@@ -177,6 +191,128 @@ document.addEventListener('DOMContentLoaded', () => {
     return [];
   }
 
+  function getCanvasContext(canvas) {
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width));
+    const height = Math.max(1, Math.round(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, width, height };
+  }
+
+  function clearCanvas(canvas) {
+    if (!canvas) return;
+    const state = getCanvasContext(canvas);
+    if (!state) return;
+    state.ctx.clearRect(0, 0, state.width, state.height);
+  }
+
+  function parseDetectionBox(raw, imgWidth, imgHeight) {
+    const source = raw && (raw.box || raw.bbox || raw.xyxy || raw);
+    if (!source) return null;
+
+    let x1;
+    let y1;
+    let x2;
+    let y2;
+    if (Array.isArray(source)) {
+      x1 = Number(source[0]);
+      y1 = Number(source[1]);
+      x2 = Number(source[2]);
+      y2 = Number(source[3]);
+    } else {
+      x1 = Number(source.x1);
+      y1 = Number(source.y1);
+      x2 = Number(source.x2);
+      y2 = Number(source.y2);
+    }
+
+    if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+    if (x2 <= x1 || y2 <= y1) return null;
+
+    if (x2 <= 1.5 && y2 <= 1.5) {
+      x1 *= imgWidth;
+      x2 *= imgWidth;
+      y1 *= imgHeight;
+      y2 *= imgHeight;
+    }
+
+    x1 = Math.max(0, Math.min(imgWidth - 1, x1));
+    y1 = Math.max(0, Math.min(imgHeight - 1, y1));
+    x2 = Math.max(x1 + 1, Math.min(imgWidth, x2));
+    y2 = Math.max(y1 + 1, Math.min(imgHeight, y2));
+
+    return { x1, y1, x2, y2 };
+  }
+
+  function getSideDetectionsForDraw(side, imgWidth, imgHeight) {
+    if (!side || !Array.isArray(side.detections)) return [];
+    return side.detections.map((det) => {
+      const box = parseDetectionBox(det, imgWidth, imgHeight);
+      if (!box) return null;
+      const confValue = det.confidence !== undefined ? det.confidence : det.conf;
+      const conf = Number.isFinite(Number(confValue)) ? Number(confValue) : 0;
+      const name = det.name || String(det.class || 'objek');
+      return { box, conf, name };
+    }).filter(Boolean);
+  }
+
+  function drawDetectionOverlay(ctx, detections, fit, options = {}) {
+    if (!detections.length) return;
+    const baseWidth = Math.max(1.5, Math.min(fit.drawWidth, fit.drawHeight) * (options.emphasizeLabels ? 0.004 : 0.003));
+
+    detections.forEach((det, idx) => {
+      const x = fit.offsetX + det.box.x1 * fit.scale;
+      const y = fit.offsetY + det.box.y1 * fit.scale;
+      const w = (det.box.x2 - det.box.x1) * fit.scale;
+      const h = (det.box.y2 - det.box.y1) * fit.scale;
+      const classColor = getClassColor(det.name);
+
+      ctx.lineWidth = baseWidth;
+      ctx.strokeStyle = classColor;
+      ctx.shadowBlur = 0;
+      ctx.strokeRect(x, y, w, h);
+
+      if (options.emphasizeLabels) {
+        const label = `${idx + 1}. ${det.name} ${(det.conf * 100).toFixed(1)}%`;
+        const fontSize = Math.max(10, Math.min(14, Math.round(fit.drawWidth * 0.018)));
+        ctx.font = `600 ${fontSize}px "DM Sans", sans-serif`;
+        const textWidth = ctx.measureText(label).width + 10;
+        const textHeight = fontSize + 8;
+        const labelY = Math.max(4, y - textHeight - 3);
+
+        ctx.fillStyle = classColor;
+        ctx.fillRect(x, labelY, textWidth, textHeight);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, labelY, textWidth, textHeight);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(label, x + 5, labelY + fontSize + 1);
+      }
+    });
+
+    if (options.showLegend) {
+      const text = `${detections.length} deteksi sisi ini`;
+      ctx.font = '600 12px "DM Sans", sans-serif';
+      const w = ctx.measureText(text).width + 12;
+      const h = 22;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(8, 8, w, h);
+      ctx.strokeStyle = 'rgba(184, 224, 74, 0.85)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(8, 8, w, h);
+      ctx.fillStyle = '#d9ef98';
+      ctx.fillText(text, 14, 23);
+    }
+  }
+
   function loadImage(url) {
     return new Promise((resolve, reject) => {
       if (!url) {
@@ -187,6 +323,61 @@ document.addEventListener('DOMContentLoaded', () => {
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('Gagal memuat preview gambar.'));
       img.src = url;
+    });
+  }
+
+  async function drawSideCanvas(canvas, side, options = {}) {
+    if (!canvas) return;
+    if (!side || !side.previewUrl) {
+      clearCanvas(canvas);
+      return;
+    }
+
+    const token = options.token;
+    const tokenType = options.tokenType || 'current';
+    try {
+      const img = await loadImage(side.previewUrl);
+      if (token !== undefined) {
+        if (tokenType === 'current' && token !== currentCanvasRenderToken) return;
+        if (tokenType === 'grid' && token !== gridCanvasRenderToken) return;
+      }
+
+      const state = getCanvasContext(canvas);
+      if (!state) return;
+      const { ctx, width, height } = state;
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#050b07';
+      ctx.fillRect(0, 0, width, height);
+
+      const imgW = img.naturalWidth || img.width;
+      const imgH = img.naturalHeight || img.height;
+      const fitMode = options.fitMode || 'contain';
+      const scale = fitMode === 'cover'
+        ? Math.max(width / imgW, height / imgH)
+        : Math.min(width / imgW, height / imgH);
+      const drawWidth = imgW * scale;
+      const drawHeight = imgH * scale;
+      const offsetX = (width - drawWidth) / 2;
+      const offsetY = (height - drawHeight) / 2;
+
+      ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+      const detections = getSideDetectionsForDraw(side, imgW, imgH);
+      drawDetectionOverlay(ctx, detections, { scale, drawWidth, drawHeight, offsetX, offsetY }, options);
+    } catch (_) {
+      clearCanvas(canvas);
+    }
+  }
+
+  function drawSideGridCanvases() {
+    const canvases = treeSideGrid.querySelectorAll('.tree-side-card__canvas');
+    if (!canvases.length) return;
+    const token = ++gridCanvasRenderToken;
+    canvases.forEach((canvas) => {
+      const sideIndex = Number(canvas.dataset.sideIndex);
+      const side = session.sides[sideIndex];
+      drawSideCanvas(canvas, side, { token, tokenType: 'grid', fitMode: 'cover' });
     });
   }
 
@@ -223,27 +414,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
       sideDets.forEach((det) => {
         const isFocus = det.detId === focusDetId;
+        const classColor = getClassColor(det.name);
         const x = det.box.x1;
         const y = det.box.y1;
         const w = det.box.x2 - det.box.x1;
         const h = det.box.y2 - det.box.y1;
 
         if (isFocus) {
-          ctx.strokeStyle = '#b8e04a';
+          ctx.strokeStyle = classColor;
           ctx.lineWidth = lineBase + 1;
-          ctx.shadowColor = 'rgba(184, 224, 74, 0.45)';
+          ctx.shadowColor = 'rgba(255, 255, 255, 0.35)';
           ctx.shadowBlur = 8;
         } else {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+          ctx.strokeStyle = classColor;
           ctx.lineWidth = lineBase;
           ctx.shadowBlur = 0;
+          ctx.globalAlpha = 0.36;
         }
         ctx.strokeRect(x, y, w, h);
+        ctx.globalAlpha = 1;
       });
 
       const focus = dedupEvidence.detectionMap[focusDetId];
       if (focus) {
-        const label = `Kandidat | conf ${(focus.conf * 100).toFixed(1)}%`;
+        const focusColor = getClassColor(focus.name);
+        const label = `Kandidat ${focus.name} | conf ${(focus.conf * 100).toFixed(1)}%`;
         const fontSize = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.026));
         ctx.font = `600 ${fontSize}px "DM Sans", sans-serif`;
         const textW = ctx.measureText(label).width + 10;
@@ -252,12 +447,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const x = Math.max(4, focus.box.x1);
 
         ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(12, 18, 12, 0.82)';
+        ctx.fillStyle = focusColor;
         ctx.fillRect(x, y, textW, textH);
-        ctx.strokeStyle = '#b8e04a';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, textW, textH);
-        ctx.fillStyle = '#f0f5f0';
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(label, x + 5, y + fontSize + 1);
       }
     } catch (_) {
@@ -294,6 +489,36 @@ document.addEventListener('DOMContentLoaded', () => {
   function hideTreeError() {
     treeErrorSection.classList.add('hidden');
     treeErrorMessage.textContent = '';
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str || '');
+    return div.innerHTML;
+  }
+
+  function getClassColor(className) {
+    if (typeof CanvasRenderer !== 'undefined' && CanvasRenderer && typeof CanvasRenderer.getClassColor === 'function') {
+      return CanvasRenderer.getClassColor(className);
+    }
+    if (window.CanvasRenderer && typeof window.CanvasRenderer.getClassColor === 'function') {
+      return window.CanvasRenderer.getClassColor(className);
+    }
+    return '#22c55e';
+  }
+
+  function buildClassSummaryFallback(result) {
+    const map = new Map();
+    const clusters = Array.isArray(result.clusters) ? result.clusters : [];
+    clusters.forEach((cluster) => {
+      const className = cluster.dominantClass || 'sawit';
+      if (!map.has(className)) {
+        map.set(className, { className, uniqueCount: 0, rawCount: 0, avgConf: 0 });
+      }
+      map.get(className).uniqueCount += 1;
+      map.get(className).rawCount += cluster.size || 0;
+    });
+    return Array.from(map.values());
   }
 
   async function processTreeSession() {
@@ -378,28 +603,45 @@ document.addEventListener('DOMContentLoaded', () => {
     treeRawCount.textContent = String(result.rawCount);
     treeMergeCount.textContent = String(result.mergeCount);
 
-    treeSideSummaryBody.innerHTML = '';
-    result.sideSummary.forEach((row) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${row.label}</td>
-        <td class="mono">${row.rawCount}</td>
-        <td class="mono">${(row.avgConf * 100).toFixed(1)}%</td>
-      `;
-      treeSideSummaryBody.appendChild(tr);
+    const classRows = Array.isArray(result.classSummary) && result.classSummary.length
+      ? result.classSummary
+      : buildClassSummaryFallback(result);
+    const classColorMap = {};
+    classRows.forEach((row) => {
+      classColorMap[row.className] = getClassColor(row.className);
     });
 
-    treeClusterBody.innerHTML = '';
-    result.clusters.forEach((cluster) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">#${cluster.clusterId}</td>
-        <td class="mono">${cluster.size}</td>
-        <td>${cluster.sides}</td>
-        <td class="mono">${(cluster.avgConf * 100).toFixed(1)}%</td>
-      `;
-      treeClusterBody.appendChild(tr);
-    });
+    if (treeClassSummaryBody) {
+      treeClassSummaryBody.innerHTML = '';
+      classRows.forEach((row) => {
+        const color = classColorMap[row.className] || getClassColor(row.className);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><div class="cell-class"><span class="color-dot" style="background:${color}"></span>${escapeHtml(row.className)}</div></td>
+          <td class="mono">${row.uniqueCount}</td>
+          <td class="mono">${row.rawCount}</td>
+          <td class="mono">${(row.avgConf * 100).toFixed(1)}%</td>
+        `;
+        treeClassSummaryBody.appendChild(tr);
+      });
+    }
+
+    if (treeClusterBody) {
+      treeClusterBody.innerHTML = '';
+      result.clusters.forEach((cluster) => {
+        const className = cluster.dominantClass || 'sawit';
+        const color = classColorMap[className] || getClassColor(className);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">#${cluster.clusterId}</td>
+          <td><div class="cell-class"><span class="color-dot" style="background:${color}"></span>${escapeHtml(className)}</div></td>
+          <td class="mono">${cluster.size}</td>
+          <td>${cluster.sides}</td>
+          <td class="mono">${(cluster.avgConf * 100).toFixed(1)}%</td>
+        `;
+        treeClusterBody.appendChild(tr);
+      });
+    }
   }
 
   function handleReviewDecision(decision) {
@@ -418,6 +660,18 @@ document.addEventListener('DOMContentLoaded', () => {
     reviewDecisions = {};
     clearWorkflowViews();
     renderWizard();
+  }
+
+  let resizeTimer = null;
+  function handleResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      renderCurrentSide();
+      drawSideGridCanvases();
+      if (!treeReviewSection.classList.contains('hidden')) {
+        renderReviewPair();
+      }
+    }, 100);
   }
 
   btnModeSingle.addEventListener('click', () => setMode('single'));
@@ -486,6 +740,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  window.addEventListener('resize', handleResize);
   window.addEventListener('focus', updateApiWarning);
   renderWizard();
   setMode('single');

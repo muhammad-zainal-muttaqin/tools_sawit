@@ -17,6 +17,14 @@ Panduan ini fokus ke tuning agar hasil counting unik lebih stabil sesuai kondisi
 
 Kedua parameter dedup bisa diatur dari menu konfigurasi.
 
+### C. Tracking Video
+
+- `trackConf` / minimum confidence tracker
+- `nmsIou` / NMS IoU internal tracker
+- `maxDistPct` / jarak centroid maksimal antar frame
+- `maxAge` / umur track tanpa update
+- `minHits` / minimal kemunculan sebelum dihitung unik
+
 ## 2) Aturan Penting
 
 - `ambiguousMin` **harus selalu lebih kecil** dari `autoMergeMin`.
@@ -71,6 +79,12 @@ Ubah:
 5. Re-run dan bandingkan metrik.
 6. Simpan konfigurasi terbaik per kondisi kebun/kamera.
 
+Untuk mode video, gunakan set validasi terpisah berbasis klip video dan ukur:
+1. error overcount,
+2. error undercount,
+3. stabilitas track (ID switch / kehilangan track),
+4. waktu proses per video.
+
 ## 6) Praktik Capture untuk Meningkatkan Akurasi
 
 - jaga jarak kamera antar sisi konsisten,
@@ -85,7 +99,8 @@ Jika hasil aneh:
 - pastikan urutan sisi benar (Depan/Kanan/Belakang/Kiri),
 - cek API key valid dan inferensi sukses di keempat sisi,
 - cek jumlah deteksi mentah per sisi (terlalu rendah = masalah inferensi/capture),
-- cek apakah ambiguous review diselesaikan dengan benar.
+- cek apakah ambiguous review diselesaikan dengan benar,
+- cek `Ringkasan Kelas` untuk melihat apakah komposisi kelas masuk akal.
 
 ## 8) Strategi Operasional
 
@@ -95,3 +110,20 @@ Jika hasil aneh:
 - Untuk throughput tinggi:
   - kalibrasi threshold agar review ambigu tidak terlalu banyak,
   - tetap audit sampel harian untuk mencegah drift kualitas.
+
+## 9) Memilih Mode yang Tepat
+
+- Pakai `4 sisi` jika tujuan utama adalah hitung akurat per pohon.
+- Pakai `video` jika tujuan utama adalah throughput dan pemindaian area.
+
+Prinsip akurasi:
+- mode 4 sisi cenderung lebih presisi untuk satu pohon (multi-view terarah),
+- mode video cenderung lebih efisien untuk alur panjang, tapi sensitif pada gerak kamera dan occlusion.
+
+## 10) Standar Output ke User
+
+Agar user tidak bingung, interpretasi hasil di UI diseragamkan:
+- fokus ke jumlah unik,
+- tampilkan konteks deteksi mentah,
+- tampilkan confidence rata-rata,
+- tampilkan kelas dengan warna konsisten antar mode.

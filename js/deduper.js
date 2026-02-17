@@ -386,12 +386,29 @@ const TreeDeduper = {
       .map((members, idx) => {
         const avgConf = members.reduce((acc, m) => acc + m.conf, 0) / Math.max(1, members.length);
         const sides = Array.from(new Set(members.map((m) => m.sideLabel))).join(', ');
+        const classStats = new Map();
+
+        members.forEach((member) => {
+          const className = member.name || 'sawit';
+          if (!classStats.has(className)) {
+            classStats.set(className, { count: 0, bestConf: 0 });
+          }
+          const stat = classStats.get(className);
+          stat.count += 1;
+          stat.bestConf = Math.max(stat.bestConf, member.conf || 0);
+        });
+
+        const dominantClassEntry = Array.from(classStats.entries())
+          .sort((a, b) => b[1].count - a[1].count || b[1].bestConf - a[1].bestConf)[0];
+        const dominantClass = dominantClassEntry ? dominantClassEntry[0] : 'sawit';
+
         return {
           clusterId: idx + 1,
           members,
           size: members.length,
           sides,
           avgConf,
+          dominantClass,
         };
       })
       .sort((a, b) => b.size - a.size || b.avgConf - a.avgConf);
@@ -409,6 +426,44 @@ const TreeDeduper = {
       };
     });
 
+    const classSummaryMap = new Map();
+    evidence.detections.forEach((det) => {
+      const className = det.name || 'sawit';
+      if (!classSummaryMap.has(className)) {
+        classSummaryMap.set(className, {
+          className,
+          rawCount: 0,
+          rawConfTotal: 0,
+          uniqueCount: 0,
+        });
+      }
+      const row = classSummaryMap.get(className);
+      row.rawCount += 1;
+      row.rawConfTotal += det.conf || 0;
+    });
+
+    clusters.forEach((cluster) => {
+      const className = cluster.dominantClass || 'sawit';
+      if (!classSummaryMap.has(className)) {
+        classSummaryMap.set(className, {
+          className,
+          rawCount: 0,
+          rawConfTotal: 0,
+          uniqueCount: 0,
+        });
+      }
+      classSummaryMap.get(className).uniqueCount += 1;
+    });
+
+    const classSummary = Array.from(classSummaryMap.values())
+      .map((row) => ({
+        className: row.className,
+        uniqueCount: row.uniqueCount,
+        rawCount: row.rawCount,
+        avgConf: row.rawCount ? (row.rawConfTotal / row.rawCount) : 0,
+      }))
+      .sort((a, b) => b.uniqueCount - a.uniqueCount || b.rawCount - a.rawCount || b.avgConf - a.avgConf);
+
     const rawCount = evidence.detections.length;
     const uniqueCount = clusters.length;
     const mergeCount = Math.max(0, rawCount - uniqueCount);
@@ -419,6 +474,7 @@ const TreeDeduper = {
       mergeCount,
       clusters,
       sideSummary,
+      classSummary,
       decisions: finalDecisions,
       ambiguityResolvedCount: evidence.ambiguousPairs.length,
       thresholds: evidence.thresholds,
