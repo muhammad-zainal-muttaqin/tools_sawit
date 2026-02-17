@@ -1,4 +1,72 @@
 /**
+ * Non-Maximum Suppression — merge overlapping boxes, keeping higher confidence.
+ * @param {Array} detections - [{box:{x1,y1,x2,y2}, confidence, ...}, ...]
+ * @param {number} iouThreshold - IoU above which the weaker box is suppressed
+ * @returns {Array} filtered detections
+ */
+function nms(detections, iouThreshold) {
+  if (detections.length <= 1) return detections;
+
+  // Sort by confidence descending
+  const sorted = detections.slice().sort((a, b) => {
+    const ca = a.confidence !== undefined ? a.confidence : a.conf;
+    const cb = b.confidence !== undefined ? b.confidence : b.conf;
+    return cb - ca;
+  });
+
+  const keep = [];
+  const suppressed = new Set();
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (suppressed.has(i)) continue;
+    keep.push(sorted[i]);
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (suppressed.has(j)) continue;
+      if (computeIoU(sorted[i], sorted[j]) > iouThreshold) {
+        suppressed.add(j);
+      }
+    }
+  }
+
+  return keep;
+}
+
+/**
+ * Compute Intersection-over-Union between two detections.
+ */
+function computeIoU(detA, detB) {
+  const boxA = detA.box || detA.bbox || {};
+  const boxB = detB.box || detB.bbox || {};
+
+  const a = {
+    x1: boxA.x1 !== undefined ? boxA.x1 : (boxA[0] || 0),
+    y1: boxA.y1 !== undefined ? boxA.y1 : (boxA[1] || 0),
+    x2: boxA.x2 !== undefined ? boxA.x2 : (boxA[2] || 0),
+    y2: boxA.y2 !== undefined ? boxA.y2 : (boxA[3] || 0),
+  };
+  const b = {
+    x1: boxB.x1 !== undefined ? boxB.x1 : (boxB[0] || 0),
+    y1: boxB.y1 !== undefined ? boxB.y1 : (boxB[1] || 0),
+    x2: boxB.x2 !== undefined ? boxB.x2 : (boxB[2] || 0),
+    y2: boxB.y2 !== undefined ? boxB.y2 : (boxB[3] || 0),
+  };
+
+  const interX1 = Math.max(a.x1, b.x1);
+  const interY1 = Math.max(a.y1, b.y1);
+  const interX2 = Math.min(a.x2, b.x2);
+  const interY2 = Math.min(a.y2, b.y2);
+
+  const interArea = Math.max(0, interX2 - interX1) * Math.max(0, interY2 - interY1);
+  if (interArea === 0) return 0;
+
+  const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+  const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+
+  return interArea / (areaA + areaB - interArea);
+}
+
+/**
  * CentroidTracker — Tracks detections across video frames using centroid matching
  * with global motion compensation for camera pan/tilt.
  *
@@ -9,14 +77,20 @@ class CentroidTracker {
    * @param {Object} options
    * @param {number} options.maxDistance - Max pixel distance to match a detection to a track
    * @param {number} options.maxAge - Frames a track survives without a match before removal
+   * @param {number} options.minConfidence - Minimum confidence to accept a detection (0-1)
+   * @param {number} options.minHits - Minimum frames a track must be seen to count as unique
+   * @param {number} options.iouThreshold - IoU threshold for NMS suppression
    */
   constructor(options = {}) {
     this.maxDistance = options.maxDistance || 50;
-    this.maxAge = options.maxAge || 3;
+    this.maxAge = options.maxAge || 5;
+    this.minConfidence = options.minConfidence || 0;
+    this.minHits = options.minHits || 1;
+    this.iouThreshold = options.iouThreshold || 0.4;
 
-    this.tracks = new Map(); // id -> { cx, cy, w, h, age, confidence, name }
+    this.tracks = new Map(); // id -> { cx, cy, w, h, age, hits, confidence, name }
+    this.expiredTracks = []; // tracks that aged out, kept for unique counting
     this.nextId = 0;
-    this.totalUnique = 0;
   }
 
   /**
@@ -25,8 +99,19 @@ class CentroidTracker {
    * @returns {Array} detections with `trackId` property added
    */
   update(detections) {
+    // Layer 1: NMS — suppress overlapping boxes
+    let filtered = nms(detections, this.iouThreshold);
+
+    // Layer 2: Confidence gate — remove low-confidence noise
+    if (this.minConfidence > 0) {
+      filtered = filtered.filter(det => {
+        const conf = det.confidence !== undefined ? det.confidence : det.conf;
+        return conf >= this.minConfidence;
+      });
+    }
+
     // Compute centroids for incoming detections
-    const incoming = detections.map(det => {
+    const incoming = filtered.map(det => {
       const box = det.box || det.bbox || {};
       const x1 = box.x1 !== undefined ? box.x1 : (box[0] || 0);
       const y1 = box.y1 !== undefined ? box.y1 : (box[1] || 0);
@@ -72,7 +157,6 @@ class CentroidTracker {
         cy: tc.cy + motion.dy,
       }));
       const result = this._greedyMatch(trackIds, compensated, incoming);
-      // Use the motion-compensated match result
       return this._applyMatches(result, incoming, motion);
     }
 
@@ -92,11 +176,12 @@ class CentroidTracker {
       track.w = inc.w;
       track.h = inc.h;
       track.age = 0;
+      track.hits++;
       track.confidence = inc.det.confidence !== undefined ? inc.det.confidence : inc.det.conf;
       inc.det.trackId = trackId;
     }
 
-    // Age unmatched tracks, remove if too old
+    // Age unmatched tracks, expire if too old
     for (const trackId of unmatchedTracks) {
       const track = this.tracks.get(trackId);
       // Compensate position for camera motion so track "follows" the scene
@@ -104,6 +189,7 @@ class CentroidTracker {
       track.cy += motion.dy;
       track.age++;
       if (track.age > this.maxAge) {
+        this.expiredTracks.push(track);
         this.tracks.delete(trackId);
       }
     }
@@ -191,21 +277,30 @@ class CentroidTracker {
 
   _createTrack(inc) {
     const id = this.nextId++;
-    this.totalUnique++;
     this.tracks.set(id, {
       cx: inc.cx,
       cy: inc.cy,
       w: inc.w,
       h: inc.h,
       age: 0,
+      hits: 1,
       confidence: inc.det.confidence !== undefined ? inc.det.confidence : inc.det.conf,
       name: inc.det.name || 'object',
     });
     return id;
   }
 
-  /** Total unique objects seen across all frames */
+  /** Total unique objects seen across all frames (only tracks with hits >= minHits) */
   getUniqueCount() {
-    return this.totalUnique;
+    let count = 0;
+    // Count active tracks that meet minHits
+    for (const [, track] of this.tracks) {
+      if (track.hits >= this.minHits) count++;
+    }
+    // Count expired tracks that met minHits
+    for (const track of this.expiredTracks) {
+      if (track.hits >= this.minHits) count++;
+    }
+    return count;
   }
 }

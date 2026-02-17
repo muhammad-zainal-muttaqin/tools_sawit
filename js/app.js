@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let videoUniqueCount = 0;
 
   const DEFAULTS = { conf: 0.25, iou: 0.45, imgsz: 640 };
+  const TRACKER_DEFAULTS = { trackConf: 0.40, nmsIou: 0.40, maxDist: 8, maxAge: 5, minHits: 2 };
 
   const btnResetSettings = document.getElementById('btn-reset-settings');
 
@@ -72,6 +73,30 @@ document.addEventListener('DOMContentLoaded', () => {
   btnCloseSettings.addEventListener('click', closeSettings);
   overlay.addEventListener('click', closeSettings);
 
+  // --- Tracker UI Elements ---
+  const sliderTrackConf = document.getElementById('slider-track-conf');
+  const inputTrackConf = document.getElementById('input-track-conf');
+  const sliderNmsIou = document.getElementById('slider-nms-iou');
+  const inputNmsIou = document.getElementById('input-nms-iou');
+  const sliderMaxDist = document.getElementById('slider-max-dist');
+  const inputMaxDist = document.getElementById('input-max-dist');
+  const sliderMaxAge = document.getElementById('slider-max-age');
+  const inputMaxAge = document.getElementById('input-max-age');
+  const sliderMinHits = document.getElementById('slider-min-hits');
+  const inputMinHits = document.getElementById('input-min-hits');
+
+  function getTrackerSettings() {
+    try {
+      const raw = localStorage.getItem('sawitai_tracker');
+      if (raw) return { ...TRACKER_DEFAULTS, ...JSON.parse(raw) };
+    } catch (_) {}
+    return { ...TRACKER_DEFAULTS };
+  }
+
+  function saveTrackerSettings(s) {
+    localStorage.setItem('sawitai_tracker', JSON.stringify(s));
+  }
+
   function initSettings() {
     const settings = ApiService.getSettings();
     sliderConf.value = settings.conf;
@@ -80,6 +105,19 @@ document.addEventListener('DOMContentLoaded', () => {
     inputConf.value = settings.conf;
     inputIou.value = settings.iou;
     inputImgsz.value = settings.imgsz;
+
+    // Tracker settings
+    const ts = getTrackerSettings();
+    sliderTrackConf.value = ts.trackConf;
+    inputTrackConf.value = ts.trackConf;
+    sliderNmsIou.value = ts.nmsIou;
+    inputNmsIou.value = ts.nmsIou;
+    sliderMaxDist.value = ts.maxDist;
+    inputMaxDist.value = ts.maxDist;
+    sliderMaxAge.value = ts.maxAge;
+    inputMaxAge.value = ts.maxAge;
+    sliderMinHits.value = ts.minHits;
+    inputMinHits.value = ts.minHits;
 
     if (ApiService.hasApiKey()) {
       inputApiKey.value = ApiService.getApiKey();
@@ -135,6 +173,35 @@ document.addEventListener('DOMContentLoaded', () => {
     saveCurrentSettings();
   });
 
+  // Sync tracker sliders <-> inputs
+  function syncTrackerPair(slider, input) {
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+      saveCurrentTrackerSettings();
+    });
+    input.addEventListener('change', () => {
+      const v = clampToSlider(slider, input.value);
+      input.value = v;
+      slider.value = v;
+      saveCurrentTrackerSettings();
+    });
+  }
+  syncTrackerPair(sliderTrackConf, inputTrackConf);
+  syncTrackerPair(sliderNmsIou, inputNmsIou);
+  syncTrackerPair(sliderMaxDist, inputMaxDist);
+  syncTrackerPair(sliderMaxAge, inputMaxAge);
+  syncTrackerPair(sliderMinHits, inputMinHits);
+
+  function saveCurrentTrackerSettings() {
+    saveTrackerSettings({
+      trackConf: parseFloat(sliderTrackConf.value),
+      nmsIou: parseFloat(sliderNmsIou.value),
+      maxDist: parseInt(sliderMaxDist.value, 10),
+      maxAge: parseInt(sliderMaxAge.value, 10),
+      minHits: parseInt(sliderMinHits.value, 10),
+    });
+  }
+
   function saveCurrentSettings() {
     ApiService.saveSettings({
       conf: sliderConf.value,
@@ -152,6 +219,19 @@ document.addEventListener('DOMContentLoaded', () => {
     inputIou.value = DEFAULTS.iou;
     inputImgsz.value = DEFAULTS.imgsz;
     saveCurrentSettings();
+
+    // Reset tracker settings
+    sliderTrackConf.value = TRACKER_DEFAULTS.trackConf;
+    inputTrackConf.value = TRACKER_DEFAULTS.trackConf;
+    sliderNmsIou.value = TRACKER_DEFAULTS.nmsIou;
+    inputNmsIou.value = TRACKER_DEFAULTS.nmsIou;
+    sliderMaxDist.value = TRACKER_DEFAULTS.maxDist;
+    inputMaxDist.value = TRACKER_DEFAULTS.maxDist;
+    sliderMaxAge.value = TRACKER_DEFAULTS.maxAge;
+    inputMaxAge.value = TRACKER_DEFAULTS.maxAge;
+    sliderMinHits.value = TRACKER_DEFAULTS.minHits;
+    inputMinHits.value = TRACKER_DEFAULTS.minHits;
+    saveCurrentTrackerSettings();
   });
 
   // --- API Key ---
@@ -349,11 +429,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setLoadingState('Mendeteksi tandan...', `Frame 0 / ${frames.length}`, 0);
 
-        // Initialize tracker with adaptive distance threshold (~4% of frame diagonal)
+        // Initialize tracker from settings UI
         const frameW = video.videoWidth;
         const frameH = video.videoHeight;
-        const maxDist = Math.sqrt(frameW * frameW + frameH * frameH) * 0.04;
-        const tracker = new CentroidTracker({ maxDistance: maxDist, maxAge: 3 });
+        const ts = getTrackerSettings();
+        const maxDist = Math.sqrt(frameW * frameW + frameH * frameH) * (ts.maxDist / 100);
+        const tracker = new CentroidTracker({
+          maxDistance: maxDist,
+          maxAge: ts.maxAge,
+          minConfidence: ts.trackConf,
+          minHits: ts.minHits,
+          iouThreshold: ts.nmsIou,
+        });
 
         const allFrameResults = [];
         const frameImages = []; // store blob URLs for drawing

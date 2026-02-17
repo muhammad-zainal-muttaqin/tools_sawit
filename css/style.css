@@ -273,6 +273,15 @@ input { font-family: inherit; }
   font-weight: 500;
 }
 
+.settings__label--section {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-text);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
 .settings__hint {
   font-size: 0.75rem;
   margin-top: var(--space-xs);

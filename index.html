@@ -100,6 +100,54 @@
         </div>
       </div>
 
+      <!-- Tracker Settings (Video) -->
+      <div class="settings__section">
+        <label class="settings__label settings__label--section">Tracker (Video)</label>
+        <p class="settings__hint">Parameter untuk tracking tandan di video. Ubah jika hasil counting kurang akurat.</p>
+      </div>
+      <div class="settings__grid">
+        <div class="settings__section">
+          <label class="settings__label">Min Confidence Tracker</label>
+          <div class="slider-row">
+            <input type="range" id="slider-track-conf" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
+            <input type="number" id="input-track-conf" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
+          </div>
+          <div class="slider__labels"><span>0.10</span><span>0.90</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">NMS IoU Threshold</label>
+          <div class="slider-row">
+            <input type="range" id="slider-nms-iou" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
+            <input type="number" id="input-nms-iou" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
+          </div>
+          <div class="slider__labels"><span>0.10</span><span>0.90</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Max Distance (%)</label>
+          <div class="slider-row">
+            <input type="range" id="slider-max-dist" class="slider" min="1" max="20" step="1" value="8">
+            <input type="number" id="input-max-dist" class="input-num" min="1" max="20" step="1" value="8">
+          </div>
+          <div class="slider__labels"><span>1%</span><span>20%</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Max Age (frame)</label>
+          <div class="slider-row">
+            <input type="range" id="slider-max-age" class="slider" min="1" max="15" step="1" value="5">
+            <input type="number" id="input-max-age" class="input-num" min="1" max="15" step="1" value="5">
+          </div>
+          <div class="slider__labels"><span>1</span><span>15</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Min Hits (frame)</label>
+          <div class="slider-row">
+            <input type="range" id="slider-min-hits" class="slider" min="1" max="5" step="1" value="2">
+            <input type="number" id="input-min-hits" class="input-num" min="1" max="5" step="1" value="2">
+          </div>
+          <div class="slider__labels"><span>1</span><span>5</span></div>
+        </div>
+      </div>
+
       <!-- Reset -->
       <button id="btn-reset-settings" class="btn btn--ghost btn--sm btn--full" style="margin-top:var(--space-sm)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>
