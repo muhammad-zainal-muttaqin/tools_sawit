@@ -3,241 +3,259 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deteksi Pohon Sawit - YOLO AI</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>SawitAI — Deteksi Pohon Sawit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            palm: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d' }
-          }
-        }
-      }
-    }
-  </script>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body>
+
+  <!-- Ambient background -->
+  <div class="bg-grain"></div>
+  <div class="bg-glow bg-glow--1"></div>
+  <div class="bg-glow bg-glow--2"></div>
 
   <!-- Header -->
-  <header class="bg-palm-800 text-white shadow-lg">
-    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <svg class="w-8 h-8 text-palm-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
-        </svg>
-        <div>
-          <h1 class="text-xl font-bold">Deteksi Pohon Sawit</h1>
-          <p class="text-palm-100 text-xs">Powered by YOLO AI</p>
+  <header class="header">
+    <div class="header__inner">
+      <a href="#" class="header__brand">
+        <div class="header__logo">
+          <svg viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M16 6C16 6 20 10 20 16C20 22 16 26 16 26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M16 6C16 6 12 10 12 16C12 22 16 26 16 26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M6 16H26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M7.5 11H24.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+            <path d="M7.5 21H24.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+          </svg>
         </div>
-      </div>
-      <button id="btn-settings" class="p-2 hover:bg-palm-700 rounded-lg transition" title="Pengaturan">
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-        </svg>
-      </button>
+        <div class="header__text">
+          <span class="header__title">SawitAI</span>
+          <span class="header__sub">Computer Vision</span>
+        </div>
+      </a>
+      <nav class="header__nav">
+        <button id="btn-settings" class="btn-icon" title="Pengaturan Model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </button>
+      </nav>
     </div>
   </header>
 
-  <!-- Settings Panel (hidden by default) -->
-  <div id="settings-panel" class="hidden bg-white border-b shadow-sm">
-    <div class="max-w-5xl mx-auto px-4 py-4 space-y-4">
-      <h2 class="font-semibold text-gray-800">Pengaturan</h2>
-
-      <!-- API Key -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">API Key Ultralytics</label>
-        <div class="flex gap-2">
-          <input type="password" id="input-apikey" placeholder="Masukkan API key (ul_xxx...)"
-            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-palm-500 focus:border-palm-500 outline-none">
-          <button id="btn-toggle-key" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition" title="Tampilkan/Sembunyikan">
-            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-            </svg>
-          </button>
-          <button id="btn-save-key" class="px-4 py-2 bg-palm-600 text-white text-sm rounded-lg hover:bg-palm-700 transition">Simpan</button>
-        </div>
-        <p id="apikey-status" class="text-xs mt-1 text-gray-500"></p>
+  <!-- Settings Drawer -->
+  <div id="settings-panel" class="settings" data-open="false">
+    <div class="settings__inner">
+      <div class="settings__header">
+        <h2 class="settings__title">Konfigurasi</h2>
+        <button id="btn-close-settings" class="btn-icon btn-icon--sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
 
-      <!-- Model Parameters -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Confidence: <span id="conf-value" class="text-palm-600 font-bold">0.25</span>
-          </label>
-          <input type="range" id="slider-conf" min="0.01" max="1" step="0.01" value="0.25"
-            class="w-full accent-palm-600">
-          <div class="flex justify-between text-xs text-gray-400"><span>0.01</span><span>1.0</span></div>
+      <!-- API Key -->
+      <div class="settings__section">
+        <label class="settings__label">API Key</label>
+        <div class="input-group">
+          <input type="password" id="input-apikey" class="input input--dark" placeholder="ul_xxxxxxxxxxxx">
+          <button id="btn-toggle-key" class="btn-icon btn-icon--sm" title="Tampilkan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+          <button id="btn-save-key" class="btn btn--accent btn--sm">Simpan</button>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            IoU: <span id="iou-value" class="text-palm-600 font-bold">0.45</span>
-          </label>
-          <input type="range" id="slider-iou" min="0" max="0.95" step="0.05" value="0.45"
-            class="w-full accent-palm-600">
-          <div class="flex justify-between text-xs text-gray-400"><span>0</span><span>0.95</span></div>
+        <p id="apikey-status" class="settings__hint"></p>
+      </div>
+
+      <!-- Sliders -->
+      <div class="settings__grid">
+        <div class="settings__section">
+          <label class="settings__label">Confidence <span id="conf-value" class="settings__val">0.25</span></label>
+          <input type="range" id="slider-conf" class="slider" min="0.01" max="1" step="0.01" value="0.25">
+          <div class="slider__labels"><span>0.01</span><span>1.0</span></div>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Image Size: <span id="imgsz-value" class="text-palm-600 font-bold">640</span>
-          </label>
-          <input type="range" id="slider-imgsz" min="32" max="1280" step="32" value="640"
-            class="w-full accent-palm-600">
-          <div class="flex justify-between text-xs text-gray-400"><span>32</span><span>1280</span></div>
+        <div class="settings__section">
+          <label class="settings__label">IoU Threshold <span id="iou-value" class="settings__val">0.45</span></label>
+          <input type="range" id="slider-iou" class="slider" min="0" max="0.95" step="0.05" value="0.45">
+          <div class="slider__labels"><span>0</span><span>0.95</span></div>
+        </div>
+        <div class="settings__section">
+          <label class="settings__label">Image Size <span id="imgsz-value" class="settings__val">640</span></label>
+          <input type="range" id="slider-imgsz" class="slider" min="32" max="1280" step="32" value="640">
+          <div class="slider__labels"><span>32</span><span>1280</span></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Main Content -->
-  <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Hero -->
+    <section class="hero" id="hero">
+      <div class="hero__content">
+        <h1 class="hero__heading">
+          <span class="hero__line hero__line--1">Deteksi</span>
+          <span class="hero__line hero__line--2"><em>Pohon Sawit</em></span>
+          <span class="hero__line hero__line--3">dengan AI</span>
+        </h1>
+        <p class="hero__desc">Upload foto atau video perkebunan Anda. Model YOLO mendeteksi dan menghitung setiap pohon sawit secara otomatis.</p>
+      </div>
+    </section>
 
     <!-- API Key Warning -->
-    <div id="apikey-warning" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
-      <svg class="w-5 h-5 text-yellow-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-      </svg>
+    <div id="apikey-warning" class="notice notice--warn">
+      <div class="notice__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      </div>
       <div>
-        <p class="text-sm font-medium text-yellow-800">API Key belum diatur</p>
-        <p class="text-xs text-yellow-600 mt-1">Klik ikon pengaturan di atas untuk memasukkan API key Ultralytics Anda.</p>
+        <strong>API Key belum dikonfigurasi</strong>
+        <p>Buka pengaturan untuk memasukkan API key Ultralytics Anda.</p>
       </div>
     </div>
 
-    <!-- Upload Zone -->
-    <div id="upload-zone"
-      class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-palm-500 hover:bg-palm-50 transition-colors cursor-pointer">
-      <svg class="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-      </svg>
-      <p class="text-gray-600 font-medium">Seret & lepas file di sini</p>
-      <p class="text-gray-400 text-sm mt-1">atau klik untuk memilih file</p>
-      <p class="text-gray-400 text-xs mt-2">Format: JPG, PNG, WEBP, MP4, AVI, MOV, MKV</p>
-      <input type="file" id="file-input" class="hidden" accept="image/*,video/*">
-    </div>
-
-    <!-- File Preview -->
-    <div id="preview-section" class="hidden">
-      <div class="bg-white rounded-xl shadow-sm border p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <span id="file-icon" class="text-lg"></span>
-            <span id="file-name" class="text-sm font-medium text-gray-700 truncate max-w-xs"></span>
-            <span id="file-size" class="text-xs text-gray-400"></span>
-          </div>
-          <button id="btn-remove-file" class="text-gray-400 hover:text-red-500 transition" title="Hapus file">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    <!-- Upload -->
+    <section class="upload-section">
+      <div id="upload-zone" class="upload">
+        <div class="upload__border"></div>
+        <div class="upload__content">
+          <div class="upload__icon">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 32l8-10 6 8 8-12 10 14"/>
+              <rect x="4" y="6" width="40" height="36" rx="4"/>
+              <circle cx="14" cy="16" r="3"/>
             </svg>
+          </div>
+          <h3 class="upload__title">Seret file ke sini</h3>
+          <p class="upload__subtitle">atau klik untuk memilih</p>
+          <div class="upload__formats">
+            <span class="tag">JPG</span>
+            <span class="tag">PNG</span>
+            <span class="tag">WEBP</span>
+            <span class="tag">MP4</span>
+            <span class="tag">AVI</span>
+            <span class="tag">MOV</span>
+          </div>
+        </div>
+        <input type="file" id="file-input" class="sr-only" accept="image/*,video/*">
+      </div>
+    </section>
+
+    <!-- Preview -->
+    <section id="preview-section" class="preview hidden">
+      <div class="card">
+        <div class="card__header">
+          <div class="card__file-info">
+            <span id="file-icon" class="card__file-icon"></span>
+            <span id="file-name" class="card__file-name"></span>
+            <span id="file-size" class="card__file-size"></span>
+          </div>
+          <button id="btn-remove-file" class="btn-icon btn-icon--sm btn-icon--danger" title="Hapus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
-        <div id="preview-container" class="flex justify-center bg-gray-100 rounded-lg overflow-hidden">
-          <img id="preview-image" class="hidden max-h-80 object-contain">
-          <video id="preview-video" class="hidden max-h-80" controls></video>
+        <div class="card__media">
+          <img id="preview-image" class="hidden">
+          <video id="preview-video" class="hidden" controls></video>
         </div>
-        <button id="btn-detect"
-          class="mt-4 w-full py-3 bg-palm-600 text-white font-semibold rounded-lg hover:bg-palm-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex items-center justify-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
-          Deteksi Sekarang
+        <button id="btn-detect" class="btn btn--primary btn--lg btn--full" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <span>Mulai Deteksi</span>
         </button>
       </div>
-    </div>
+    </section>
 
-    <!-- Loading State -->
-    <div id="loading-section" class="hidden">
-      <div class="bg-white rounded-xl shadow-sm border p-8 text-center">
-        <div class="spinner mx-auto mb-4"></div>
-        <p class="text-gray-600 font-medium">Menganalisis gambar...</p>
-        <p class="text-gray-400 text-sm mt-1">Mohon tunggu, AI sedang mendeteksi pohon sawit</p>
-      </div>
-    </div>
-
-    <!-- Results Section -->
-    <div id="results-section" class="hidden space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold text-gray-800">Hasil Deteksi</h2>
-        <div class="flex items-center gap-2">
-          <span id="detection-count" class="text-sm bg-palm-100 text-palm-800 px-3 py-1 rounded-full font-medium"></span>
-          <button id="btn-download" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition flex items-center gap-1" title="Download hasil">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            Download
-          </button>
+    <!-- Loading -->
+    <section id="loading-section" class="hidden">
+      <div class="card card--center">
+        <div class="loader">
+          <div class="loader__ring"></div>
+          <div class="loader__ring"></div>
+          <div class="loader__ring"></div>
         </div>
+        <h3 class="loader__text">Menganalisis...</h3>
+        <p class="loader__sub">Model AI sedang memproses file Anda</p>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results-section" class="results hidden">
+      <div class="results__header">
+        <div>
+          <h2 class="results__title">Hasil Deteksi</h2>
+          <span id="detection-count" class="results__count"></span>
+        </div>
+        <button id="btn-download" class="btn btn--outline btn--sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          <span>Download</span>
+        </button>
       </div>
 
       <!-- Image Result -->
       <div id="image-result" class="hidden">
-        <div class="bg-white rounded-xl shadow-sm border p-4">
-          <div class="flex justify-center bg-gray-100 rounded-lg overflow-hidden">
-            <canvas id="result-canvas" class="max-w-full"></canvas>
-          </div>
+        <div class="card card--flush">
+          <canvas id="result-canvas"></canvas>
         </div>
       </div>
 
       <!-- Video Result -->
       <div id="video-result" class="hidden">
-        <div class="bg-white rounded-xl shadow-sm border p-4 space-y-3">
-          <div class="flex justify-center bg-gray-100 rounded-lg overflow-hidden">
-            <canvas id="video-result-canvas" class="max-w-full"></canvas>
-          </div>
-          <div class="flex items-center justify-center gap-4">
-            <button id="btn-prev-frame" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition disabled:opacity-50" disabled>
-              &larr; Sebelumnya
-            </button>
-            <span id="frame-indicator" class="text-sm text-gray-600 font-medium">Frame 1 / 1</span>
-            <button id="btn-next-frame" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition disabled:opacity-50" disabled>
-              Selanjutnya &rarr;
-            </button>
+        <div class="card card--flush">
+          <canvas id="video-result-canvas"></canvas>
+          <div class="frame-nav">
+            <button id="btn-prev-frame" class="btn btn--ghost btn--sm" disabled>&larr; Sebelumnya</button>
+            <span id="frame-indicator" class="frame-nav__indicator">Frame 1 / 1</span>
+            <button id="btn-next-frame" class="btn btn--ghost btn--sm" disabled>Selanjutnya &rarr;</button>
           </div>
         </div>
       </div>
 
-      <!-- Detection Details Table -->
-      <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div class="px-4 py-3 border-b bg-gray-50">
-          <h3 class="text-sm font-semibold text-gray-700">Detail Deteksi</h3>
+      <!-- Detection Table -->
+      <div class="card">
+        <div class="table-header">
+          <h3>Detail Deteksi</h3>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-gray-600">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
               <tr>
-                <th class="text-left px-4 py-2">#</th>
-                <th class="text-left px-4 py-2">Kelas</th>
-                <th class="text-left px-4 py-2">Confidence</th>
-                <th class="text-left px-4 py-2">Bounding Box</th>
+                <th>#</th>
+                <th>Kelas</th>
+                <th>Confidence</th>
+                <th>Bounding Box</th>
               </tr>
             </thead>
             <tbody id="detection-table-body"></tbody>
           </table>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Error State -->
-    <div id="error-section" class="hidden">
-      <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-        <svg class="w-5 h-5 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <div>
-          <p class="text-sm font-medium text-red-800">Terjadi Kesalahan</p>
-          <p id="error-message" class="text-xs text-red-600 mt-1"></p>
-        </div>
+    <!-- Error -->
+    <div id="error-section" class="notice notice--error hidden">
+      <div class="notice__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+      </div>
+      <div>
+        <strong>Terjadi Kesalahan</strong>
+        <p id="error-message"></p>
       </div>
     </div>
 
   </main>
 
   <!-- Footer -->
-  <footer class="text-center py-6 text-xs text-gray-400">
-    <p>Deteksi Pohon Sawit &mdash; YOLO AI Model</p>
+  <footer class="footer">
+    <div class="footer__inner">
+      <span class="footer__brand">SawitAI</span>
+      <span class="footer__sep">&mdash;</span>
+      <span>YOLO Computer Vision</span>
+    </div>
   </footer>
 
   <script src="js/api.js"></script>

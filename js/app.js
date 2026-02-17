@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- Elements ---
   const btnSettings = document.getElementById('btn-settings');
+  const btnCloseSettings = document.getElementById('btn-close-settings');
   const settingsPanel = document.getElementById('settings-panel');
   const inputApiKey = document.getElementById('input-apikey');
   const btnToggleKey = document.getElementById('btn-toggle-key');
@@ -43,14 +44,28 @@ document.addEventListener('DOMContentLoaded', () => {
   let videoFrameResults = [];
   let currentFrameIndex = 0;
 
+  // Create settings overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-overlay';
+  document.body.appendChild(overlay);
+
   // --- Init ---
   initSettings();
   checkApiKey();
 
-  // --- Settings ---
-  btnSettings.addEventListener('click', () => {
-    settingsPanel.classList.toggle('hidden');
-  });
+  // --- Settings Drawer ---
+  function openSettings() {
+    settingsPanel.dataset.open = 'true';
+    overlay.classList.add('active');
+  }
+  function closeSettings() {
+    settingsPanel.dataset.open = 'false';
+    overlay.classList.remove('active');
+  }
+
+  btnSettings.addEventListener('click', openSettings);
+  btnCloseSettings.addEventListener('click', closeSettings);
+  overlay.addEventListener('click', closeSettings);
 
   function initSettings() {
     const settings = ApiService.getSettings();
@@ -96,14 +111,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const key = inputApiKey.value.trim();
     if (!key) {
       apikeyStatus.textContent = 'API key tidak boleh kosong.';
-      apikeyStatus.className = 'text-xs mt-1 text-red-500';
+      apikeyStatus.className = 'settings__hint error';
       return;
     }
     ApiService.setApiKey(key);
     apikeyStatus.textContent = 'API key berhasil disimpan!';
-    apikeyStatus.className = 'text-xs mt-1 text-green-600';
+    apikeyStatus.className = 'settings__hint success';
     checkApiKey();
-    setTimeout(() => { apikeyStatus.textContent = ''; }, 3000);
+    setTimeout(() => { apikeyStatus.textContent = ''; apikeyStatus.className = 'settings__hint'; }, 3000);
   });
 
   function checkApiKey() {
@@ -121,16 +136,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   uploadZone.addEventListener('dragover', (e) => {
     e.preventDefault();
-    uploadZone.classList.add('upload-drag-active');
+    uploadZone.classList.add('drag-active');
   });
 
   uploadZone.addEventListener('dragleave', () => {
-    uploadZone.classList.remove('upload-drag-active');
+    uploadZone.classList.remove('drag-active');
   });
 
   uploadZone.addEventListener('drop', (e) => {
     e.preventDefault();
-    uploadZone.classList.remove('upload-drag-active');
+    uploadZone.classList.remove('drag-active');
     if (e.dataTransfer.files.length > 0) {
       handleFile(e.dataTransfer.files[0]);
     }
@@ -152,7 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Show preview
     hideError();
     hideResults();
     previewSection.classList.remove('hidden');
@@ -193,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnDetect.addEventListener('click', async () => {
     if (!selectedFile) return;
     if (!ApiService.hasApiKey()) {
-      showError('API key belum diatur. Klik pengaturan untuk memasukkan API key.');
+      showError('API key belum diatur. Buka pengaturan untuk memasukkan API key.');
       return;
     }
 
@@ -212,17 +226,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function handleResult(result) {
-    // Ultralytics API response can vary. Normalize:
-    // Could be: { images: [{ results: [...] }] }
-    // Or: { results: [...] }
-    // Or: [ { ... } ] (array of detections)
-    // Or: { data: [...] }
-
     let detections = [];
     let frameResults = null;
 
     if (result && result.images && Array.isArray(result.images)) {
-      // Multi-frame (video) or single image
       if (result.images.length > 1) {
         frameResults = result.images.map(img => img.results || []);
       } else {
@@ -260,11 +267,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const count = detections.length;
     detectionCount.textContent = `${count} pohon terdeteksi`;
 
-    // Draw on canvas
     const imgSrc = URL.createObjectURL(selectedFile);
     CanvasRenderer.drawImageWithBoxes(resultCanvas, imgSrc, detections);
-
-    // Fill table
     fillDetectionTable(detections);
   }
 
@@ -286,7 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
     detectionCount.textContent = `${count} pohon terdeteksi (Frame ${currentFrameIndex + 1})`;
     fillDetectionTable(detections);
 
-    // Seek video to approximate time and draw
     const video = previewVideo;
     if (video.duration && videoFrameResults.length > 1) {
       const timePerFrame = video.duration / videoFrameResults.length;
@@ -298,7 +301,6 @@ document.addEventListener('DOMContentLoaded', () => {
       video.onseeked = null;
     };
 
-    // If video is already at correct time or single frame
     if (video.readyState >= 2) {
       CanvasRenderer.drawVideoFrameWithBoxes(videoResultCanvas, video, detections);
     }
@@ -330,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function fillDetectionTable(detections) {
     detectionTableBody.innerHTML = '';
     if (!detections.length) {
-      detectionTableBody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">Tidak ada pohon sawit terdeteksi</td></tr>';
+      detectionTableBody.innerHTML = '<tr><td colspan="4" style="padding:2rem;text-align:center;color:var(--c-text-dim);">Tidak ada pohon sawit terdeteksi</td></tr>';
       return;
     }
 
@@ -346,20 +348,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const color = CanvasRenderer.getColor(i % 10);
 
       const tr = document.createElement('tr');
-      tr.className = 'border-t border-gray-100';
       tr.innerHTML = `
-        <td class="px-4 py-2 text-gray-500">${i + 1}</td>
-        <td class="px-4 py-2">
-          <span class="inline-block w-2.5 h-2.5 rounded-full mr-1.5" style="background:${color}"></span>
-          ${escapeHtml(name)}
-        </td>
-        <td class="px-4 py-2">
-          <div class="flex items-center gap-2">
-            <div class="conf-bar w-16"><div class="conf-bar-fill" style="width:${confPct}%;background:${color}"></div></div>
-            <span class="text-gray-700">${confPct}%</span>
-          </div>
-        </td>
-        <td class="px-4 py-2 text-gray-500 text-xs font-mono">[${x1}, ${y1}, ${x2}, ${y2}]</td>
+        <td class="mono">${i + 1}</td>
+        <td><div class="cell-class"><span class="color-dot" style="background:${color}"></span>${escapeHtml(name)}</div></td>
+        <td><span class="conf-bar"><span class="conf-fill" style="width:${confPct}%;background:${color}"></span></span><span class="mono">${confPct}%</span></td>
+        <td class="mono">[${x1}, ${y1}, ${x2}, ${y2}]</td>
       `;
       detectionTableBody.appendChild(tr);
     });
