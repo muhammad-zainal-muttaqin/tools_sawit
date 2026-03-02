@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://predict-69946db62c5eac9cd6df-dproatj77a-as.a.run.app';
+const API_BASE_URL = 'https://predict-69a4d8cd2b905703e4cf-dproatj77a-as.a.run.app';
 
 const ApiService = {
   getApiKey() {
