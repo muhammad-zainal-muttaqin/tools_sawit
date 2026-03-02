@@ -60,6 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let reviewRenderToken = 0;
   let currentCanvasRenderToken = 0;
   let gridCanvasRenderToken = 0;
+  let treeShowBoxes = true;
+  const treeResultToggle = document.getElementById('tree-result-toggle');
 
   function getTreeCountSettings() {
     try {
@@ -144,6 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const hasPreview = !!side.previewUrl;
     treeCurrentCanvas.classList.toggle('hidden', !hasPreview);
     treeEmptyState.classList.toggle('hidden', hasPreview);
+    // Show toggle only when side has detections
+    const hasDetections = hasPreview && Array.isArray(side.detections) && side.detections.length > 0;
+    if (treeResultToggle) treeResultToggle.classList.toggle('hidden', !hasDetections);
     if (hasPreview) {
       const token = ++currentCanvasRenderToken;
       drawSideCanvas(treeCurrentCanvas, side, {
@@ -152,6 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
         emphasizeLabels: true,
         showLegend: true,
         fitMode: 'contain',
+        showDetections: treeShowBoxes,
       });
     } else {
       clearCanvas(treeCurrentCanvas);
@@ -373,17 +379,38 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tokenType === 'grid' && token !== gridCanvasRenderToken) return;
       }
 
-      const state = getCanvasContext(canvas);
-      if (!state) return;
-      const { ctx, width, height } = state;
+      const imgW = img.naturalWidth || img.width;
+      const imgH = img.naturalHeight || img.height;
+      const fitMode = options.fitMode || 'contain';
+
+      // Compute canvas dimensions based on image aspect ratio and container width
+      const containerWidth = canvas.parentElement ? canvas.parentElement.clientWidth : canvas.clientWidth;
+      const dpr = window.devicePixelRatio || 1;
+      let width, height;
+
+      if (fitMode === 'cover') {
+        // Grid thumbnails: use container width and 4:3 aspect ratio
+        width = Math.max(1, containerWidth);
+        height = Math.max(1, Math.round(width * 3 / 4));
+      } else {
+        // Preview: use image aspect ratio
+        width = Math.max(1, containerWidth);
+        height = Math.max(1, Math.round(width * imgH / imgW));
+      }
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = '#050b07';
       ctx.fillRect(0, 0, width, height);
 
-      const imgW = img.naturalWidth || img.width;
-      const imgH = img.naturalHeight || img.height;
-      const fitMode = options.fitMode || 'contain';
       const scale = fitMode === 'cover'
         ? Math.max(width / imgW, height / imgH)
         : Math.min(width / imgW, height / imgH);
@@ -394,8 +421,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
 
-      const detections = getSideDetectionsForDraw(side, imgW, imgH);
-      drawDetectionOverlay(ctx, detections, { scale, drawWidth, drawHeight, offsetX, offsetY }, options);
+      if (options.showDetections !== false) {
+        const detections = getSideDetectionsForDraw(side, imgW, imgH);
+        drawDetectionOverlay(ctx, detections, { scale, drawWidth, drawHeight, offsetX, offsetY }, options);
+      }
     } catch (_) {
       clearCanvas(canvas);
     }
@@ -408,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
     canvases.forEach((canvas) => {
       const sideIndex = Number(canvas.dataset.sideIndex);
       const side = session.sides[sideIndex];
-      drawSideCanvas(canvas, side, { token, tokenType: 'grid', fitMode: 'cover' });
+      drawSideCanvas(canvas, side, { token, tokenType: 'grid', fitMode: 'cover', showDetections: treeShowBoxes });
     });
   }
 
@@ -417,6 +446,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = canvas.getContext('2d');
     canvas.width = 2;
     canvas.height = 2;
+    canvas.style.width = '';
+    canvas.style.height = '';
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
@@ -432,24 +463,38 @@ document.addEventListener('DOMContentLoaded', () => {
       const img = await loadImage(side.previewUrl);
       if (token !== reviewRenderToken) return;
 
+      const containerWidth = canvas.parentElement ? canvas.parentElement.clientWidth : canvas.clientWidth;
+      const dpr = window.devicePixelRatio || 1;
+      const imgW = img.naturalWidth;
+      const imgH = img.naturalHeight;
+      const width = Math.max(1, containerWidth);
+      const height = Math.max(1, Math.round(width * imgH / imgW));
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const scaleX = width / imgW;
+      const scaleY = height / imgH;
 
       const sideDets = dedupEvidence.detections.filter((d) => d.sideIndex === sideIndex);
-      const lineBase = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.004));
+      const lineBase = Math.max(2, Math.round(Math.min(width, height) * 0.004));
 
       sideDets.forEach((det) => {
         const isFocus = det.detId === focusDetId;
         const classColor = getClassColor(det.name);
-        const x = det.box.x1;
-        const y = det.box.y1;
-        const w = det.box.x2 - det.box.x1;
-        const h = det.box.y2 - det.box.y1;
+        const x = det.box.x1 * scaleX;
+        const y = det.box.y1 * scaleY;
+        const w = (det.box.x2 - det.box.x1) * scaleX;
+        const h = (det.box.y2 - det.box.y1) * scaleY;
 
         if (isFocus) {
           ctx.strokeStyle = classColor;
@@ -470,12 +515,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (focus) {
         const focusColor = getClassColor(focus.name);
         const label = `Kandidat ${focus.name} | conf ${(focus.conf * 100).toFixed(1)}%`;
-        const fontSize = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.026));
+        const fontSize = Math.max(12, Math.round(Math.min(width, height) * 0.026));
         ctx.font = `600 ${fontSize}px "DM Sans", sans-serif`;
         const textW = ctx.measureText(label).width + 10;
         const textH = fontSize + 8;
-        const y = Math.max(4, focus.box.y1 - textH - 4);
-        const x = Math.max(4, focus.box.x1);
+        const y = Math.max(4, focus.box.y1 * scaleY - textH - 4);
+        const x = Math.max(4, focus.box.x1 * scaleX);
 
         ctx.shadowBlur = 0;
         ctx.fillStyle = focusColor;
@@ -689,6 +734,12 @@ document.addEventListener('DOMContentLoaded', () => {
     dedupEvidence = null;
     reviewIndex = 0;
     reviewDecisions = {};
+    treeShowBoxes = true;
+    if (treeResultToggle) {
+      treeResultToggle.querySelectorAll('.result-toggle__btn').forEach(b => {
+        b.classList.toggle('result-toggle__btn--active', b.dataset.view === 'deteksi');
+      });
+    }
     clearWorkflowViews();
     renderWizard();
   }
@@ -754,6 +805,24 @@ document.addEventListener('DOMContentLoaded', () => {
     currentSideIndex = Number(button.dataset.sideIndex);
     renderWizard();
   });
+
+  // Tree mode toggle Original/Deteksi
+  if (treeResultToggle) {
+    treeResultToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('.result-toggle__btn');
+      if (!btn) return;
+      const view = btn.dataset.view;
+      const newState = view === 'deteksi';
+      if (newState === treeShowBoxes) return;
+
+      treeShowBoxes = newState;
+      treeResultToggle.querySelectorAll('.result-toggle__btn').forEach(b => {
+        b.classList.toggle('result-toggle__btn--active', b.dataset.view === view);
+      });
+      renderCurrentSide();
+      drawSideGridCanvases();
+    });
+  }
 
   btnReviewMerge.addEventListener('click', () => handleReviewDecision('merge'));
   btnReviewSeparate.addEventListener('click', () => handleReviewDecision('separate'));

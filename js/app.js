@@ -44,6 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let videoFrameResults = [];
   let currentFrameIndex = 0;
   let videoUniqueCount = 0;
+  let lastDetections = [];
+  let lastImageSrc = '';
+  let singleShowDetections = true;
 
   const DEFAULTS = { conf: 0.25, iou: 0.45, imgsz: 640 };
   // Tracker defaults tuned untuk tandan sawit (objek relatif statis, kamera bisa bergerak):
@@ -468,7 +471,9 @@ document.addEventListener('DOMContentLoaded', () => {
     previewSection.classList.remove('hidden');
     fileName.textContent = file.name;
     fileSize.textContent = formatFileSize(file.size);
-    fileIcon.textContent = isImage ? '\uD83D\uDDBC\uFE0F' : '\uD83C\uDFA5';
+    fileIcon.innerHTML = isImage
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M4 17l4-5 3 4 4-6 5 7"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15"/></svg>';
 
     if (isImage) {
       previewImage.classList.remove('hidden');
@@ -670,10 +675,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const count = detections.length;
     detectionCount.textContent = `${count} tandan terdeteksi`;
 
-    const imgSrc = URL.createObjectURL(selectedFile);
-    CanvasRenderer.drawImageWithBoxes(resultCanvas, imgSrc, detections);
+    lastDetections = detections;
+    lastImageSrc = URL.createObjectURL(selectedFile);
+    singleShowDetections = true;
+
+    // Reset toggle to Deteksi active
+    const toggleBtns = imageResult.querySelectorAll('.result-toggle__btn');
+    toggleBtns.forEach(btn => {
+      btn.classList.toggle('result-toggle__btn--active', btn.dataset.view === 'deteksi');
+    });
+
+    CanvasRenderer.drawImageWithBoxes(resultCanvas, lastImageSrc, detections);
     fillDetectionTable(detections);
   }
+
+  // Single mode toggle
+  imageResult.addEventListener('click', (e) => {
+    const btn = e.target.closest('.result-toggle__btn');
+    if (!btn || !lastImageSrc) return;
+    const view = btn.dataset.view;
+    if ((view === 'deteksi') === singleShowDetections) return;
+
+    singleShowDetections = view === 'deteksi';
+    const toggleBtns = imageResult.querySelectorAll('.result-toggle__btn');
+    toggleBtns.forEach(b => {
+      b.classList.toggle('result-toggle__btn--active', b.dataset.view === view);
+    });
+
+    const dets = singleShowDetections ? lastDetections : [];
+    CanvasRenderer.drawImageWithBoxes(resultCanvas, lastImageSrc, dets);
+  });
 
   let videoFrameImages = [];
 

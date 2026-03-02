@@ -339,6 +339,10 @@
 
       <!-- Image Result -->
       <div id="image-result" class="hidden">
+        <div class="result-toggle">
+          <button class="result-toggle__btn" data-view="original">Original</button>
+          <button class="result-toggle__btn result-toggle__btn--active" data-view="deteksi">Deteksi</button>
+        </div>
         <div class="card card--flush">
           <canvas id="result-canvas"></canvas>
         </div>
@@ -432,6 +436,10 @@
 
           <div class="tree-capture">
             <div class="tree-capture__preview">
+              <div id="tree-result-toggle" class="result-toggle result-toggle--tree hidden">
+                <button class="result-toggle__btn result-toggle__btn--active" data-view="deteksi">Deteksi</button>
+                <button class="result-toggle__btn" data-view="original">Original</button>
+              </div>
               <canvas id="tree-current-canvas" class="hidden" aria-label="Preview sisi aktif"></canvas>
               <div id="tree-empty-state" class="tree-empty">Belum ada foto untuk sisi ini.</div>
             </div>
