@@ -152,13 +152,15 @@ document.addEventListener('DOMContentLoaded', () => {
       emptyState.classList.add('hidden');
       editorArea.classList.remove('hidden');
       await ActiveSession.fromJSON(json, tree);
-      _lastResult = null;
-      exportButtons.classList.add('hidden');
       _currentSide = 0;
       _currentPair = 0;
       _dedupInitialized = false;
       _activateSidePill(0);
       _initEditor(0);
+      // Auto-compute results so the hasil tab is populated immediately
+      _lastResult = Results.compute(ActiveSession.get());
+      Results.render(_lastResult, resultsContainer);
+      exportButtons.classList.remove('hidden');
     } catch (err) {
       alert('Gagal memuat sesi: ' + err.message);
     }
