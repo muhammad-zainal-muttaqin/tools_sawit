@@ -18,3 +18,13 @@ desktop.ini
 # Environment
 .env
 .env.local
+
+# Debug logs
+debug.log
+*.log
+
+# Local dataset (tidak perlu di-repo)
+Damimas_Only/
+
+# Claude Code project instructions (lokal)
+CLAUDE.md

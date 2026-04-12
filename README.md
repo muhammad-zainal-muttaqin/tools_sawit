@@ -88,9 +88,8 @@ Semua disimpan di `localStorage` key `sawitai_postprocess`.
 
 ## Menjalankan Lokal
 
-```powershell
-cd C:\Users\Zainal\Desktop\App-Sawit
-C:\Python314\python.exe -m http.server 5500
+```bash
+python -m http.server 5500
 ```
 
 Buka `http://localhost:5500`.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SawitAI — Deteksi Tandan Sawit</title>
+  <title>Tools Koreksi Dataset Sawit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -18,8 +18,8 @@
 
   <!-- Header -->
   <header class="header">
-    <div class="header__inner">
-      <a href="#" class="header__brand">
+    <div class="header__inner header__inner--wide">
+      <div class="header__brand">
         <div class="header__logo">
           <svg viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="1.5"/>
@@ -31,567 +31,221 @@
           </svg>
         </div>
         <div class="header__text">
-          <span class="header__title">SawitAI</span>
-          <span class="header__sub">Computer Vision</span>
+          <span class="header__title">Tools Koreksi Dataset</span>
+          <span class="header__sub">Oil Palm · Offline</span>
         </div>
-      </a>
-      <nav class="header__nav">
-        <button id="btn-settings" class="btn-icon" title="Pengaturan Model" aria-label="Pengaturan Model">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
+      </div>
+
+      <!-- Dataset toolbar -->
+      <div class="dataset-toolbar" id="dataset-toolbar">
+        <!-- File inputs (hidden) -->
+        <input type="file" id="input-folder" webkitdirectory multiple accept=".jpg,.jpeg,.png,.txt" class="hidden">
+        <input type="file" id="input-session" accept=".json" class="hidden">
+
+        <button class="btn btn--outline btn--sm" id="btn-load-folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Muat Folder
         </button>
-      </nav>
+
+        <button class="btn btn--ghost btn--sm" id="btn-load-session" title="Muat sesi tersimpan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          Muat Sesi
+        </button>
+
+        <div class="tree-nav hidden" id="tree-nav">
+          <button class="btn-icon btn-icon--sm" id="btn-prev-tree" title="Pohon sebelumnya">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <select class="tree-select" id="tree-select" title="Pilih pohon"></select>
+          <button class="btn-icon btn-icon--sm" id="btn-next-tree" title="Pohon berikutnya">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <span class="tree-counter" id="tree-counter"></span>
+        </div>
+      </div>
     </div>
   </header>
 
-  <!-- Settings Drawer -->
-  <div id="settings-panel" class="settings" data-open="false">
-    <div class="settings__inner">
-      <div class="settings__header">
-        <h2 class="settings__title">Konfigurasi</h2>
-        <button id="btn-close-settings" class="btn-icon btn-icon--sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
+  <!-- Main workspace -->
+  <main class="workspace" id="workspace">
 
-      <!-- API Key -->
-      <div class="settings__section">
-        <label class="settings__label">API Key</label>
-        <div class="input-group">
-          <input type="password" id="input-apikey" class="input input--dark" placeholder="ul_xxxxxxxxxxxx">
-          <button id="btn-toggle-key" class="btn-icon btn-icon--sm" title="Tampilkan">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
-          <button id="btn-save-key" class="btn btn--accent btn--sm">Simpan</button>
-        </div>
-        <p id="apikey-status" class="settings__hint"></p>
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-state__icon">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8" y="16" width="48" height="36" rx="4"/>
+          <path d="M8 24h48"/>
+          <path d="M20 8l4 8M44 8l-4 8"/>
+          <circle cx="32" cy="36" r="8"/>
+          <path d="M29 36l2 2 4-4"/>
+        </svg>
       </div>
-
-      <!-- Sliders -->
-      <div class="settings__grid">
-        <div class="settings__section">
-          <label class="settings__label">Confidence</label>
-          <p class="settings__desc">Batas keyakinan model. Lebih tinggi = lebih sedikit deteksi tapi lebih akurat.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-conf" class="slider" min="0.01" max="1" step="0.01" value="0.25">
-            <input type="number" id="input-conf" class="input-num" min="0.01" max="1" step="0.01" value="0.25">
-          </div>
-          <div class="slider__labels"><span>0.01</span><span>1.0</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">IoU Threshold</label>
-          <p class="settings__desc">Batas overlap box dari model. Lebih rendah = lebih agresif menghapus box ganda.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-iou" class="slider" min="0" max="0.95" step="0.05" value="0.45">
-            <input type="number" id="input-iou" class="input-num" min="0" max="0.95" step="0.05" value="0.45">
-          </div>
-          <div class="slider__labels"><span>0</span><span>0.95</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Image Size</label>
-          <p class="settings__desc">Resolusi input ke model. Lebih besar = lebih detail tapi lebih lambat.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-imgsz" class="slider" min="32" max="1280" step="32" value="640">
-            <input type="number" id="input-imgsz" class="input-num" min="32" max="1280" step="32" value="640">
-          </div>
-          <div class="slider__labels"><span>32</span><span>1280</span></div>
-        </div>
-      </div>
-
-      <!-- Tracker Settings (Video) -->
-      <div class="settings__section">
-        <label class="settings__label settings__label--section">Tracker (Video)</label>
-        <p class="settings__hint">Parameter untuk tracking tandan di video. Ubah jika hasil counting kurang akurat.</p>
-      </div>
-      <div class="settings__grid">
-        <div class="settings__section">
-          <label class="settings__label">Min Confidence Tracker</label>
-          <p class="settings__desc">Deteksi di bawah nilai ini dibuang sebelum tracking. Lebih tinggi = kurangi noise, tapi bisa kehilangan tandan kecil.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-track-conf" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
-            <input type="number" id="input-track-conf" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
-          </div>
-          <div class="slider__labels"><span>0.10</span><span>0.90</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">NMS IoU Threshold</label>
-          <p class="settings__desc">Batas overlap untuk merge box ganda. Lebih rendah = lebih agresif merge, kurangi hitung dobel.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-nms-iou" class="slider" min="0.10" max="0.90" step="0.05" value="0.40">
-            <input type="number" id="input-nms-iou" class="input-num" min="0.10" max="0.90" step="0.05" value="0.40">
-          </div>
-          <div class="slider__labels"><span>0.10</span><span>0.90</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Max Distance (%)</label>
-          <p class="settings__desc">Jarak maksimal mencocokkan tandan antar frame. Lebih besar = toleran gerakan kamera, tapi bisa salah cocokkan.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-max-dist" class="slider" min="1" max="20" step="1" value="8">
-            <input type="number" id="input-max-dist" class="input-num" min="1" max="20" step="1" value="8">
-          </div>
-          <div class="slider__labels"><span>1%</span><span>20%</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Max Age (frame)</label>
-          <p class="settings__desc">Berapa frame tandan bertahan tanpa terdeteksi ulang. Lebih besar = track lebih stabil, tapi bisa tahan false positive.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-max-age" class="slider" min="1" max="15" step="1" value="5">
-            <input type="number" id="input-max-age" class="input-num" min="1" max="15" step="1" value="5">
-          </div>
-          <div class="slider__labels"><span>1</span><span>15</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Min Hits (frame)</label>
-          <p class="settings__desc">Minimal terdeteksi di berapa frame baru dihitung unik. Lebih besar = kurangi false positive, tapi bisa miss tandan sekilas.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-min-hits" class="slider" min="1" max="5" step="1" value="2">
-            <input type="number" id="input-min-hits" class="input-num" min="1" max="5" step="1" value="2">
-          </div>
-          <div class="slider__labels"><span>1</span><span>5</span></div>
-        </div>
-      </div>
-
-      <!-- Multi-photo dedup settings -->
-      <div class="settings__section">
-        <label class="settings__label settings__label--section">Counting 4 Sisi</label>
-        <p class="settings__hint">Pengaturan deduplikasi antar foto agar mengurangi hitung dobel.</p>
-      </div>
-      <div class="settings__grid">
-        <div class="settings__section">
-          <label class="settings__label">Auto Merge Threshold</label>
-          <p class="settings__desc">Jika skor kemiripan di atas nilai ini, sistem otomatis anggap tandan yang sama.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-tree-auto-merge" class="slider" min="0.70" max="0.98" step="0.01" value="0.82">
-            <input type="number" id="input-tree-auto-merge" class="input-num" min="0.70" max="0.98" step="0.01" value="0.82">
-          </div>
-          <div class="slider__labels"><span>0.70</span><span>0.98</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Ambiguous Threshold</label>
-          <p class="settings__desc">Skor minimum agar pasangan masuk review manual. Di bawah ini langsung dianggap berbeda.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-tree-ambiguous" class="slider" min="0.40" max="0.90" step="0.01" value="0.68">
-            <input type="number" id="input-tree-ambiguous" class="input-num" min="0.40" max="0.90" step="0.01" value="0.68">
-          </div>
-          <div class="slider__labels"><span>0.40</span><span>0.90</span></div>
-        </div>
-      </div>
-
-      <!-- Box dedup settings -->
-      <div class="settings__section">
-        <label class="settings__label settings__label--section">Deduplikasi Bounding Box (Semua Mode)</label>
-        <p class="settings__hint">Mengurangi box ganda yang overlap/bergeser tipis pada deteksi gambar, video, dan mode 4 sisi.</p>
-      </div>
-      <div class="settings__grid">
-        <div class="settings__section">
-          <label class="settings__toggle">
-            <input type="checkbox" id="input-post-dedup-enable" checked>
-            <span>Aktifkan deduplikasi box setelah inferensi</span>
-          </label>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Post NMS IoU</label>
-          <p class="settings__desc">Lebih rendah = lebih agresif menghapus box overlap. Mulai dari 0.45 lalu sesuaikan.</p>
-          <div class="slider-row">
-            <input type="range" id="slider-post-dedup-iou" class="slider" min="0.30" max="0.85" step="0.01" value="0.45">
-            <input type="number" id="input-post-dedup-iou" class="input-num" min="0.30" max="0.85" step="0.01" value="0.45">
-          </div>
-          <div class="slider__labels"><span>0.30</span><span>0.85</span></div>
-        </div>
-        <div class="settings__section">
-          <label class="settings__label">Containment Threshold</label>
-          <p class="settings__desc">Lebih rendah = lebih agresif hapus box ganda. Lebih tinggi = lebih konservatif (lebih banyak box dipertahankan).</p>
-          <div class="slider-row">
-            <input type="range" id="slider-post-dedup-containment" class="slider" min="0.60" max="0.98" step="0.01" value="0.82">
-            <input type="number" id="input-post-dedup-containment" class="input-num" min="0.60" max="0.98" step="0.01" value="0.82">
-          </div>
-          <div class="slider__labels"><span>0.60</span><span>0.98</span></div>
-        </div>
-      </div>
-
-      <!-- Reset -->
-      <button id="btn-reset-settings" class="btn btn--ghost btn--sm btn--full" style="margin-top:var(--space-sm)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>
-        <span>Reset ke Default</span>
+      <h2 class="empty-state__title">Belum ada dataset dimuat</h2>
+      <p class="empty-state__desc">Klik <strong>Muat Folder</strong> untuk memilih folder dataset yang berisi gambar dan label YOLO.</p>
+      <button class="btn btn--primary" id="btn-load-folder-hero">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Muat Folder
       </button>
     </div>
-  </div>
 
-  <!-- Main -->
-  <main class="main">
+    <!-- Editor (shown after loading) -->
+    <div class="editor-area hidden" id="editor-area">
 
-    <!-- Hero -->
-    <section class="hero" id="hero">
-      <div class="hero__content">
-        <h1 class="hero__heading">
-          <span class="hero__line hero__line--1">Deteksi</span>
-          <span class="hero__line hero__line--2"><em>Tandan Sawit</em></span>
-          <span class="hero__line hero__line--3">dengan AI</span>
-        </h1>
-        <p class="hero__desc">Upload foto atau video perkebunan Anda. Model YOLO mendeteksi dan menghitung setiap tandan sawit secara otomatis.</p>
-      </div>
-    </section>
-
-    <section class="mode-switch">
-      <div class="mode-switch__group">
-        <button id="btn-mode-single" class="btn btn--outline btn--sm mode-switch__btn mode-switch__btn--active">Deteksi File Tunggal</button>
-        <button id="btn-mode-tree" class="btn btn--outline btn--sm mode-switch__btn">Hitung 1 Pohon (4 Foto)</button>
-      </div>
-      <p class="mode-switch__hint">Mode 4 sisi membantu menekan overcount antar foto dari pohon yang sama.</p>
-    </section>
-
-    <div id="single-mode-root">
-    <!-- API Key Warning -->
-    <div id="apikey-warning" class="notice notice--warn">
-      <div class="notice__icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-      </div>
-      <div>
-        <strong>API Key belum dikonfigurasi</strong>
-        <p>Buka pengaturan untuk memasukkan API key Ultralytics Anda.</p>
-      </div>
-    </div>
-
-    <!-- Upload -->
-    <section class="upload-section">
-      <div id="upload-zone" class="upload">
-        <div class="upload__border"></div>
-        <div class="upload__content">
-          <div class="upload__icon">
-            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 32l8-10 6 8 8-12 10 14"/>
-              <rect x="4" y="6" width="40" height="36" rx="4"/>
-              <circle cx="14" cy="16" r="3"/>
-            </svg>
-          </div>
-          <h3 class="upload__title">Seret file ke sini</h3>
-          <p class="upload__subtitle">atau klik untuk memilih</p>
-          <div class="upload__formats">
-            <span class="tag">JPG</span>
-            <span class="tag">PNG</span>
-            <span class="tag">WEBP</span>
-            <span class="tag">MP4</span>
-            <span class="tag">AVI</span>
-            <span class="tag">MOV</span>
-          </div>
-        </div>
-        <input type="file" id="file-input" class="sr-only" accept="image/*,video/*">
-      </div>
-    </section>
-
-    <!-- Preview -->
-    <section id="preview-section" class="preview hidden">
-      <div class="card">
-        <div class="card__header">
-          <div class="card__file-info">
-            <span id="file-icon" class="card__file-icon"></span>
-            <span id="file-name" class="card__file-name"></span>
-            <span id="file-size" class="card__file-size"></span>
-          </div>
-          <button id="btn-remove-file" class="btn-icon btn-icon--sm btn-icon--danger" title="Hapus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="card__media">
-          <img id="preview-image" class="hidden">
-          <video id="preview-video" class="hidden" controls></video>
-        </div>
-        <button id="btn-detect" class="btn btn--primary btn--lg btn--full" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <span>Mulai Deteksi</span>
+      <!-- Tabs -->
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tab="koreksi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Koreksi Anotasi
         </button>
-      </div>
-    </section>
-
-    <!-- Loading -->
-    <section id="loading-section" class="hidden">
-      <div class="card card--center">
-        <div class="loader">
-          <div class="loader__ring"></div>
-          <div class="loader__ring"></div>
-          <div class="loader__ring"></div>
-        </div>
-        <h3 class="loader__text" id="loading-text">Menganalisis...</h3>
-        <p class="loader__sub" id="loading-sub">Model AI sedang memproses file Anda</p>
-        <div id="loading-progress" class="progress hidden">
-          <div class="progress__bar" id="loading-progress-bar"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Results -->
-    <section id="results-section" class="results hidden">
-      <div class="results__header">
-        <div>
-          <h2 class="results__title">Hasil Deteksi</h2>
-          <span id="detection-count" class="results__count"></span>
-        </div>
-        <button id="btn-download" class="btn btn--outline btn--sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          <span>Download</span>
+        <button class="tab" data-tab="dedup">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          Deduplikasi
+        </button>
+        <button class="tab" data-tab="hasil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-5 5"/></svg>
+          Hasil
         </button>
       </div>
 
-      <!-- Image Result -->
-      <div id="image-result" class="hidden">
-        <div class="result-toggle">
-          <button class="result-toggle__btn" data-view="original">Original</button>
-          <button class="result-toggle__btn result-toggle__btn--active" data-view="deteksi">Deteksi</button>
-        </div>
-        <div class="card card--flush">
-          <canvas id="result-canvas"></canvas>
-        </div>
-      </div>
+      <!-- ── Tab: Koreksi ── -->
+      <div class="tab-panel active" id="panel-koreksi">
+        <div class="koreksi-layout">
+          <!-- Side pills + toolbar -->
+          <div class="koreksi-sidebar">
+            <div class="side-pills" id="side-pills">
+              <button class="side-pill active" data-side="0">Depan</button>
+              <button class="side-pill" data-side="1">Kanan</button>
+              <button class="side-pill" data-side="2">Belakang</button>
+              <button class="side-pill" data-side="3">Kiri</button>
+            </div>
 
-      <!-- Video Result -->
-      <div id="video-result" class="hidden">
-        <div id="video-summary" class="stats-row">
-          <div class="stat">
-            <span class="stat__value" id="unique-count">0</span>
-            <span class="stat__label">Tandan Unik</span>
-          </div>
-          <div class="stat">
-            <span class="stat__value" id="total-frames">0</span>
-            <span class="stat__label">Frame Diproses</span>
-          </div>
-          <div class="stat">
-            <span class="stat__value" id="avg-confidence">0%</span>
-            <span class="stat__label">Avg Confidence</span>
-          </div>
-        </div>
-        <div class="card card--flush">
-          <canvas id="video-result-canvas"></canvas>
-          <div class="frame-nav">
-            <button id="btn-prev-frame" class="btn btn--ghost btn--sm" disabled>&larr; Sebelumnya</button>
-            <span id="frame-indicator" class="frame-nav__indicator">Frame 1 / 1</span>
-            <button id="btn-next-frame" class="btn btn--ghost btn--sm" disabled>Selanjutnya &rarr;</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Detection Table -->
-      <div class="card">
-        <div class="table-header">
-          <h3>Detail Deteksi</h3>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Track ID</th>
-                <th>Kelas</th>
-                <th>Confidence</th>
-                <th>Bounding Box</th>
-              </tr>
-            </thead>
-            <tbody id="detection-table-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- Error -->
-    <div id="error-section" class="notice notice--error hidden">
-      <div class="notice__icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-      </div>
-      <div>
-        <strong>Terjadi Kesalahan</strong>
-        <p id="error-message"></p>
-      </div>
-    </div>
-    </div>
-
-    <div id="tree-mode-root" class="hidden">
-      <div id="tree-apikey-warning" class="notice notice--warn">
-        <div class="notice__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-        </div>
-        <div>
-          <strong>API Key belum dikonfigurasi</strong>
-          <p>Buka pengaturan untuk memasukkan API key Ultralytics Anda.</p>
-        </div>
-      </div>
-
-      <section class="card tree-card">
-        <div class="card__header">
-          <div>
-            <h3 class="tree-card__title">Wizard 4 Sisi Pohon</h3>
-            <p class="tree-card__sub">Ambil/upload sisi depan, kanan, belakang, kiri untuk deduplikasi lintas foto.</p>
-          </div>
-        </div>
-        <div class="tree-card__body">
-          <div id="tree-side-pills" class="tree-pills">
-            <button class="tree-pill" data-side-index="0">1. Depan</button>
-            <button class="tree-pill" data-side-index="1">2. Kanan</button>
-            <button class="tree-pill" data-side-index="2">3. Belakang</button>
-            <button class="tree-pill" data-side-index="3">4. Kiri</button>
-          </div>
-
-          <div class="tree-capture">
-            <div class="tree-capture__preview">
-              <div id="tree-result-toggle" class="result-toggle result-toggle--tree hidden">
-                <button class="result-toggle__btn result-toggle__btn--active" data-view="deteksi">Deteksi</button>
-                <button class="result-toggle__btn" data-view="original">Original</button>
+            <div class="editor-toolbar">
+              <div class="toolbar-group">
+                <span class="toolbar-label">Kelas</span>
+                <div class="class-buttons">
+                  <button class="btn-class btn-b1" data-class="1" title="B1 — Tekan [1]">B1</button>
+                  <button class="btn-class btn-b2" data-class="2" title="B2 — Tekan [2]">B2</button>
+                  <button class="btn-class btn-b3" data-class="3" title="B3 — Tekan [3]">B3</button>
+                  <button class="btn-class btn-b4" data-class="4" title="B4 — Tekan [4]">B4</button>
+                </div>
               </div>
-              <canvas id="tree-current-canvas" class="hidden" aria-label="Preview sisi aktif"></canvas>
-              <div id="tree-empty-state" class="tree-empty">Belum ada foto untuk sisi ini.</div>
+              <div class="toolbar-group">
+                <span class="toolbar-label">Aksi</span>
+                <button class="btn btn--ghost btn--sm" id="btn-delete-bbox" disabled title="Hapus [Del]">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  Hapus
+                </button>
+              </div>
+              <div class="toolbar-group">
+                <span class="toolbar-label">Tampilan</span>
+                <button class="btn btn--ghost btn--sm" id="btn-toggle-magnifier" title="Kaca pembesar [M]">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+                  Magnifier
+                </button>
+              </div>
             </div>
-            <div class="tree-capture__meta">
-              <p class="tree-capture__label">Sisi aktif: <strong id="tree-current-side-label">Depan</strong></p>
-              <p class="tree-capture__hint">Gunakan sudut sekitar 90 derajat antar sisi. Jaga jarak kamera konsisten untuk meminimalkan hitung dobel.</p>
+
+            <div class="bbox-stats" id="bbox-stats">
+              <span class="bbox-count" id="bbox-count">— bbox</span>
             </div>
-            <div class="tree-capture__actions">
-              <button id="btn-tree-pick" class="btn btn--outline btn--sm">Upload Foto Sisi Aktif</button>
-              <button id="btn-tree-next" class="btn btn--ghost btn--sm" disabled>Lanjut Sisi Berikutnya</button>
-              <button id="btn-tree-reset" class="btn btn--ghost btn--sm">Reset Sesi</button>
+
+            <div class="file-info" id="file-info"></div>
+
+            <div class="editor-hints">
+              <p class="hints-title">Edit bbox</p>
+              <p>Drag kosong → bbox baru</p>
+              <p>Klik bbox → pilih</p>
+              <p>Drag bbox → pindah</p>
+              <p>Drag sudut/sisi → resize</p>
+              <p>[1–4] → ganti kelas</p>
+              <p>[Del] → hapus</p>
+              <p>[Esc] → batal pilih</p>
+              <p>[M] → magnifier on/off</p>
+              <p class="hints-title hints-title--mt">Navigasi</p>
+              <p><kbd>[</kbd> / <kbd>]</kbd> → pohon ←/→</p>
+              <p><kbd>Q</kbd> / <kbd>E</kbd> → sisi ←/→</p>
             </div>
-            <input type="file" id="tree-file-input" class="sr-only" accept="image/*">
           </div>
 
-          <div id="tree-side-grid" class="tree-side-grid"></div>
-          <button id="btn-tree-process" class="btn btn--primary btn--lg btn--full" disabled>Proses Counting 4 Sisi</button>
-        </div>
-      </section>
-
-      <section id="tree-review-section" class="card hidden">
-        <div class="card__header">
-          <div>
-            <h3 class="tree-card__title">Review Ambigu</h3>
-            <p id="tree-review-progress" class="tree-card__sub">Pasangan 1 / 1</p>
+          <!-- Canvas -->
+          <div class="canvas-wrapper" id="editor-canvas-wrapper">
+            <canvas id="editor-canvas" class="editor-canvas" tabindex="0"></canvas>
+            <div class="canvas-placeholder" id="canvas-placeholder">Pilih sisi untuk mulai mengedit</div>
           </div>
-        </div>
-        <div class="tree-review">
-          <div class="tree-review__item">
-            <span class="tree-review__label" id="tree-review-side-a"></span>
-            <canvas id="tree-review-canvas-a" aria-label="Review sisi A"></canvas>
-          </div>
-          <div class="tree-review__item">
-            <span class="tree-review__label" id="tree-review-side-b"></span>
-            <canvas id="tree-review-canvas-b" aria-label="Review sisi B"></canvas>
-          </div>
-        </div>
-        <p id="tree-review-meta" class="tree-review__meta"></p>
-        <div class="tree-review__actions">
-          <button id="btn-review-merge" class="btn btn--primary btn--sm">Sama Tandan</button>
-          <button id="btn-review-separate" class="btn btn--outline btn--sm">Berbeda</button>
-          <button id="btn-review-skip" class="btn btn--ghost btn--sm">Sisa Anggap Berbeda</button>
-        </div>
-      </section>
-
-      <section id="tree-loading-section" class="hidden">
-        <div class="card card--center">
-          <div class="loader">
-            <div class="loader__ring"></div>
-            <div class="loader__ring"></div>
-            <div class="loader__ring"></div>
-          </div>
-          <h3 class="loader__text" id="tree-loading-text">Menganalisis...</h3>
-          <p class="loader__sub" id="tree-loading-sub">Model AI sedang memproses 4 sisi.</p>
-          <div id="tree-loading-progress" class="progress hidden">
-            <div class="progress__bar" id="tree-loading-progress-bar"></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="tree-results-section" class="results hidden">
-        <div class="results__header">
-          <div>
-            <h2 class="results__title">Hasil Counting 4 Sisi</h2>
-            <span id="tree-result-badge" class="results__count"></span>
-          </div>
-        </div>
-
-        <div class="stats-row">
-          <div class="stat">
-            <span class="stat__value" id="tree-unique-count">0</span>
-            <span class="stat__label">Tandan Unik</span>
-          </div>
-          <div class="stat">
-            <span class="stat__value" id="tree-raw-count">0</span>
-            <span class="stat__label">Deteksi Mentah</span>
-          </div>
-          <div class="stat">
-            <span class="stat__value" id="tree-merge-count">0</span>
-            <span class="stat__label">Merge Deduplikasi</span>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-header">
-            <h3>Ringkasan Kelas</h3>
-          </div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Kelas</th>
-                  <th>Tandan Unik</th>
-                  <th>Deteksi Mentah</th>
-                  <th>Avg Confidence</th>
-                </tr>
-              </thead>
-              <tbody id="tree-class-summary-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-header">
-            <h3>Cluster Tandan Unik</h3>
-          </div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Cluster</th>
-                  <th>Kelas</th>
-                  <th>Jumlah Anggota</th>
-                  <th>Sisi Terlibat</th>
-                  <th>Avg Confidence</th>
-                </tr>
-              </thead>
-              <tbody id="tree-cluster-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <div id="tree-error-section" class="notice notice--error hidden">
-        <div class="notice__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-        </div>
-        <div>
-          <strong>Terjadi Kesalahan</strong>
-          <p id="tree-error-message"></p>
         </div>
       </div>
-    </div>
 
+      <!-- ── Tab: Dedup ── -->
+      <div class="tab-panel hidden" id="panel-dedup">
+        <div class="dedup-header">
+          <div class="dedup-pair-nav">
+            <button class="btn-icon btn-icon--sm" id="btn-prev-pair">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <span class="dedup-pair-label" id="dedup-pair-label">Depan ↔ Kanan</span>
+            <button class="btn-icon btn-icon--sm" id="btn-next-pair">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          </div>
+          <button class="btn btn--outline btn--sm" id="btn-run-suggestions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Jalankan Saran
+          </button>
+          <div class="dedup-hint">Klik bbox kiri → klik bbox kanan → tautkan</div>
+          <div class="dedup-shortcuts"><kbd>←</kbd><kbd>→</kbd> pasangan &nbsp;·&nbsp; <kbd>R</kbd> jalankan saran</div>
+        </div>
+
+        <div class="dedup-canvases">
+          <div class="dedup-canvas-block">
+            <div class="dedup-canvas-label" id="dedup-left-label">Depan</div>
+            <canvas id="dedup-left-canvas" class="dedup-canvas"></canvas>
+          </div>
+          <div class="dedup-canvas-block">
+            <div class="dedup-canvas-label" id="dedup-right-label">Kanan</div>
+            <canvas id="dedup-right-canvas" class="dedup-canvas"></canvas>
+          </div>
+        </div>
+
+        <div class="dedup-panels">
+          <div class="dedup-panel">
+            <h3 class="dedup-panel-title">Saran Algoritma</h3>
+            <div id="dedup-suggestions"></div>
+          </div>
+          <div class="dedup-panel">
+            <h3 class="dedup-panel-title">Link Terkonfirmasi</h3>
+            <div id="dedup-links"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: Hasil ── -->
+      <div class="tab-panel hidden" id="panel-hasil">
+        <div class="hasil-header">
+          <button class="btn btn--primary btn--sm" id="btn-hitung">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-5 5"/></svg>
+            Hitung
+          </button>
+          <div class="export-buttons hidden" id="export-buttons">
+            <button class="btn btn--outline btn--sm" id="btn-export-yolo">Export YOLO</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-json">Export JSON / Simpan</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-csv">Export CSV</button>
+          </div>
+        </div>
+        <div id="results-container"></div>
+      </div>
+
+    </div><!-- /editor-area -->
   </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="footer__inner">
-      <span class="footer__brand">SawitAI</span>
-      <span class="footer__sep">&mdash;</span>
-      <span>YOLO Computer Vision</span>
-    </div>
-  </footer>
-
-  <script src="js/api.js"></script>
+  <!-- Scripts — load order matters -->
+  <script src="js/yolo-io.js"></script>
   <script src="js/canvas.js"></script>
-  <script src="js/tracker.js"></script>
-  <script src="js/postprocess.js"></script>
+  <script src="js/dedup-utils.js"></script>
   <script src="js/session.js"></script>
-  <script src="js/deduper.js"></script>
+  <script src="js/dataset.js"></script>
+  <script src="js/bbox-editor.js"></script>
+  <script src="js/dedup-ui.js"></script>
+  <script src="js/results.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/tree-mode.js"></script>
 </body>
 </html>
