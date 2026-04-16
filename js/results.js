@@ -6,6 +6,10 @@
 
 const Results = (() => {
 
+  function _bboxKey(sideIndex, bboxId) {
+    return `${sideIndex}:${bboxId}`;
+  }
+
   // ── Counting ───────────────────────────────────────────────────────────────
 
   function compute(session) {
@@ -16,21 +20,30 @@ const Results = (() => {
       const label = side.label;
       sideCounts[label] = side.bboxes.length;
       for (const b of side.bboxes) {
-        allBboxes.push({ ...b, _sideIndex: side.sideIndex, _sideLabel: label });
+        allBboxes.push({
+          ...b,
+          _sideIndex: side.sideIndex,
+          _sideLabel: label,
+          _nodeId: _bboxKey(side.sideIndex, b.id),
+        });
       }
     }
 
     const rawCount = allBboxes.length;
 
     // Build union-find from confirmed links
-    const allIds = allBboxes.map(b => b.id);
+    const allIds = allBboxes.map(b => b._nodeId);
+    const allIdSet = new Set(allIds);
     const uf = createUnionFind(allIds);
     let linkedCount = 0;
     for (const link of session.confirmedLinks) {
-      const ra = uf.find(link.bboxIdA);
-      const rb = uf.find(link.bboxIdB);
+      const idA = _bboxKey(link.sideA, link.bboxIdA);
+      const idB = _bboxKey(link.sideB, link.bboxIdB);
+      if (!allIdSet.has(idA) || !allIdSet.has(idB)) continue;
+      const ra = uf.find(idA);
+      const rb = uf.find(idB);
       if (ra !== rb) {
-        uf.union(link.bboxIdA, link.bboxIdB);
+        uf.union(idA, idB);
         linkedCount++;
       }
     }
@@ -38,7 +51,7 @@ const Results = (() => {
     // Group by cluster
     const clusters = new Map(); // root → [bbox, ...]
     for (const b of allBboxes) {
-      const root = uf.find(b.id);
+      const root = uf.find(b._nodeId);
       if (!clusters.has(root)) clusters.set(root, []);
       clusters.get(root).push(b);
     }
@@ -166,7 +179,77 @@ const Results = (() => {
     _download(`${session.treeName}_result.csv`, header + '\n' + row, 'text/csv');
   }
 
-  return { compute, render, exportYolo, exportJSON, exportCSV };
+  function exportIdentityJSON(session, result) {
+    if (!result || !result.clusters) return;
+
+    const bunches = [];
+    let bunchId = 1;
+    const mismatchBunches = [];
+
+    for (const members of result.clusters.values()) {
+      const detections = members.map(b => ({
+        side: b._sideIndex,
+        sideName: b._sideLabel,
+        bboxId: b.id,
+        class: b.className,
+        coords: [b.x1, b.y1, b.x2, b.y2],
+      }));
+
+      // Check class mismatch within cluster
+      const classes = new Set(detections.map(d => d.class));
+      const hasMismatch = classes.size > 1;
+
+      const bunch = { id: bunchId++, classMismatch: hasMismatch, detections };
+      bunches.push(bunch);
+      if (hasMismatch) mismatchBunches.push(bunch);
+    }
+
+    const data = {
+      treeId: session.treeName,
+      exportedAt: new Date().toISOString(),
+      totalUniqueBunches: bunches.length,
+      classMismatchCount: mismatchBunches.length,
+      bunches,
+    };
+
+    _download(
+      `${session.treeName}_identity.json`,
+      JSON.stringify(data, null, 2),
+      'application/json'
+    );
+  }
+
+  function exportYoloWithMismatch(session, result) {
+    if (!result || !result.clusters) return;
+
+    // Collect mismatch bbox IDs
+    const mismatchIds = new Set();
+    for (const members of result.clusters.values()) {
+      const classes = new Set(members.map(b => b.className));
+      if (classes.size > 1) {
+        for (const b of members) mismatchIds.add(b._nodeId || _bboxKey(b._sideIndex, b.id));
+      }
+    }
+
+    for (const side of session.sides) {
+      if (!side.imageWidth) continue;
+
+      const normalBboxes = side.bboxes.filter(b => !mismatchIds.has(_bboxKey(side.sideIndex, b.id)));
+      const mismatchBboxes = side.bboxes.filter(b => mismatchIds.has(_bboxKey(side.sideIndex, b.id)));
+
+      // Main annotation file
+      const text = toYoloFormat(normalBboxes, side.imageWidth, side.imageHeight);
+      _download(`${session.treeName}_${side.sideIndex + 1}.txt`, text, 'text/plain');
+
+      // Mismatch annotation file (separate)
+      if (mismatchBboxes.length > 0) {
+        const mText = toYoloFormat(mismatchBboxes, side.imageWidth, side.imageHeight);
+        _download(`${session.treeName}_${side.sideIndex + 1}_mismatch.txt`, mText, 'text/plain');
+      }
+    }
+  }
+
+  return { compute, render, exportYolo, exportJSON, exportCSV, exportIdentityJSON, exportYoloWithMismatch };
 })();
 
 window.Results = Results;

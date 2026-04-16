@@ -10,9 +10,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLoadSession   = document.getElementById('btn-load-session');
   const treeNav          = document.getElementById('tree-nav');
   const treeSelect       = document.getElementById('tree-select');
+  const treeSplit        = document.getElementById('tree-split');
+  const treeSides        = document.getElementById('tree-sides');
   const treeCounter      = document.getElementById('tree-counter');
   const btnPrevTree      = document.getElementById('btn-prev-tree');
   const btnNextTree      = document.getElementById('btn-next-tree');
+  const treeSaveStatus   = document.getElementById('tree-save-status');
+  const saveCounter      = document.getElementById('save-counter');
+  const btnSaveOutput    = document.getElementById('btn-save-output');
+
+  // Project config modal elements
+  const modalProjectCfg  = document.getElementById('modal-project-config');
+  const cfgDate          = document.getElementById('cfg-date');
+  const cfgVarietas      = document.getElementById('cfg-varietas');
+  const cfgOutputDirName = document.getElementById('cfg-output-dir-name');
+  const cfgFsWarning     = document.getElementById('cfg-fs-warning');
+  const cfgPreviewId     = document.getElementById('cfg-preview-id');
+  const btnPickOutputDir = document.getElementById('btn-pick-output-dir');
+  const btnCfgConfirm    = document.getElementById('btn-cfg-confirm');
+  const toastContainer   = document.getElementById('toast-container');
 
   const emptyState       = document.getElementById('empty-state');
   const editorArea       = document.getElementById('editor-area');
@@ -20,7 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabs             = document.querySelectorAll('.tab');
   const panels           = document.querySelectorAll('.tab-panel');
 
-  const sidePills        = document.querySelectorAll('.side-pill');
+  const sidePillsContainer = document.getElementById('side-pills');
+  let   sidePills          = []; // rebuilt dynamically per tree
   const editorCanvas     = document.getElementById('editor-canvas');
   const canvasPlaceholder= document.getElementById('canvas-placeholder');
   const bboxCount        = document.getElementById('bbox-count');
@@ -38,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const dedupRightCanvas = document.getElementById('dedup-right-canvas');
   const dedupSuggestionsEl = document.getElementById('dedup-suggestions');
   const dedupLinksEl     = document.getElementById('dedup-links');
+  const btnToggleDedupMagnifier = document.getElementById('btn-toggle-dedup-magnifier');
 
   const fileInfo         = document.getElementById('file-info');
 
@@ -46,6 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnExportYolo    = document.getElementById('btn-export-yolo');
   const btnExportJSON    = document.getElementById('btn-export-json');
   const btnExportCSV     = document.getElementById('btn-export-csv');
+  const btnExportIdentity = document.getElementById('btn-export-identity');
   const resultsContainer = document.getElementById('results-container');
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -54,6 +73,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let _editor = null;
   let _dedupInitialized = false;
   let _lastResult = null;
+  let _pendingTrees = null;  // trees waiting for config modal confirmation
+  let _autoSaving = false;   // prevent re-entrant auto-save
 
   const SIDE_COMPASS = ['N · Utara', 'E · Timur', 'S · Selatan', 'W · Barat'];
 
@@ -64,25 +85,109 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!files || files.length === 0) return;
     const trees = DatasetManager.load(files);
     if (trees.length === 0) {
-      alert('Tidak ada tree yang ditemukan. Pastikan folder berisi file gambar dengan format NAMA_1.jpg s/d NAMA_4.jpg');
+      alert('Tidak ada tree yang ditemukan. Pastikan folder berisi file gambar dengan format NAMA_1.jpg s/d NAMA_N.jpg (N = jumlah sisi, umumnya 4 atau 8)');
       return;
     }
-    _populateTreeSelect(trees);
-    treeNav.classList.remove('hidden');
-    _loadCurrentTree();
+    // Debug: summary of detected side counts across trees
+    const sideHistogram = {};
+    trees.forEach(t => {
+      const n = (t.sides || []).length;
+      sideHistogram[n] = (sideHistogram[n] || 0) + 1;
+    });
+    console.log('[Dataset] Loaded', trees.length, 'tree(s). Sisi histogram:', sideHistogram);
+
+    // Store trees and show config modal before proceeding
+    _pendingTrees = trees;
+    _showProjectConfigModal(trees);
     inputFolder.value = '';
   }
+
+  // ── Project Config Modal ─────────────────────────────────────────────────
+
+  function _showProjectConfigModal(trees) {
+    ProjectConfig.reset();
+
+    // Auto-fill date
+    cfgDate.value = ProjectConfig.get().date;
+
+    // Auto-detect varietas from first tree name
+    const guessed = trees.length > 0 ? ProjectConfig.guessVarietas(trees[0].name) : '';
+    cfgVarietas.value = guessed;
+    ProjectConfig.setVarietas(guessed);
+
+    // Preview tree ID
+    _updateCfgPreview();
+
+    // FS API warning
+    if (!ProjectConfig.isFileSystemAccessSupported()) {
+      cfgFsWarning.style.display = '';
+      btnPickOutputDir.disabled = true;
+    } else {
+      cfgFsWarning.style.display = 'none';
+      btnPickOutputDir.disabled = false;
+    }
+
+    cfgOutputDirName.textContent = 'Belum dipilih';
+    modalProjectCfg.classList.remove('hidden');
+  }
+
+  function _updateCfgPreview() {
+    ProjectConfig.setDate(cfgDate.value);
+    ProjectConfig.setVarietas(cfgVarietas.value);
+    cfgPreviewId.textContent = ProjectConfig.treeIdForIndex(0);
+  }
+
+  cfgDate.addEventListener('input', _updateCfgPreview);
+  cfgVarietas.addEventListener('input', _updateCfgPreview);
+
+  btnPickOutputDir.addEventListener('click', async () => {
+    const ok = await ProjectConfig.pickOutputDirectory();
+    if (ok) {
+      cfgOutputDirName.textContent = ProjectConfig.get().outputDirName;
+    }
+  });
+
+  btnCfgConfirm.addEventListener('click', async () => {
+    // Apply config
+    ProjectConfig.setDate(cfgDate.value);
+    ProjectConfig.setVarietas(cfgVarietas.value);
+    modalProjectCfg.classList.add('hidden');
+
+    if (!_pendingTrees) return;
+
+    // Discover prior saves before rendering the dropdown so ✓ marks appear immediately.
+    const matched = await _scanOutputDirectory();
+    if (matched > 0) _showToast(`Memulihkan ${matched} pohon dari folder output`, 'success');
+
+    _populateTreeSelect(_pendingTrees);
+    treeNav.classList.remove('hidden');
+    _updateSaveCounter();
+    _loadCurrentTree();
+    _pendingTrees = null;
+  });
 
   function _populateTreeSelect(trees) {
     treeSelect.innerHTML = '';
     trees.forEach((t, i) => {
       const opt = document.createElement('option');
       opt.value = i;
-      opt.textContent = `${t.name} [${t.split}]`;
+      const saved = ProjectConfig.isSaved(t.name);
+      opt.textContent = (saved ? '\u2713 ' : '   ') + t.name;
+      if (saved) opt.classList.add('option-saved');
       treeSelect.appendChild(opt);
     });
     treeSelect.value = DatasetManager.getIndex();
     _updateTreeCounter();
+  }
+
+  function _refreshTreeSelectOption(treeIdx) {
+    const opt = treeSelect.options[treeIdx];
+    if (!opt) return;
+    const t = DatasetManager.getTrees()[treeIdx];
+    if (!t) return;
+    const saved = ProjectConfig.isSaved(t.name);
+    opt.textContent = (saved ? '\u2713 ' : '   ') + t.name;
+    opt.classList.toggle('option-saved', saved);
   }
 
   function _updateTreeCounter() {
@@ -90,6 +195,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const total = DatasetManager.count();
     treeCounter.textContent = `${idx + 1} / ${total}`;
     treeSelect.value = idx;
+
+    const tree = DatasetManager.getTree();
+    if (treeSplit) treeSplit.textContent = tree ? (tree.split || 'unknown') : '';
+    if (treeSides) {
+      const nSides = tree && tree.sides ? tree.sides.length : 0;
+      treeSides.textContent = nSides ? `${nSides} sisi` : '';
+    }
   }
 
   async function _loadCurrentTree() {
@@ -99,35 +211,233 @@ document.addEventListener('DOMContentLoaded', () => {
     editorArea.classList.remove('hidden');
 
     await ActiveSession.loadTree(tree);
-    _lastResult = null;
-    exportButtons.classList.add('hidden');
-    resultsContainer.innerHTML = '';
+
+    // Assign tree ID from ProjectConfig
+    const treeId = ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
+    ActiveSession.setTreeId(treeId);
+
+    // Lazy resume from output JSON if we previously saved this tree.
+    let resumed = false;
+    const savedHandle = ProjectConfig.getSavedHandle(tree.name);
+    if (savedHandle) {
+      try {
+        const outputJson = await FsOutput.readJSON(savedHandle);
+        if (outputJson && outputJson.images && outputJson.bunches) {
+          const sessionJson = OutputSchema.toSessionJSON(outputJson);
+          await ActiveSession.fromJSON(sessionJson, tree);
+          ActiveSession.setTreeId(treeId);
+          resumed = true;
+        }
+      } catch (e) {
+        console.warn('[Resume] failed for', tree.name, e);
+      }
+    }
+
+    console.log('[Tree]', tree.name, '→ ID:', treeId, '→', tree.sides.length, 'sisi, pairs:', (window.ADJACENT_PAIRS || []).length, resumed ? '(resumed)' : '');
+    _lastResult = resumed ? Results.compute(ActiveSession.get()) : null;
+    if (resumed) {
+      Results.render(_lastResult, resultsContainer);
+      exportButtons.classList.remove('hidden');
+    } else {
+      exportButtons.classList.add('hidden');
+      resultsContainer.innerHTML = '';
+    }
 
     _currentSide = 0;
     _currentPair = 0;
     _dedupInitialized = false;
 
+    _rebuildSidePills();
     _activateSidePill(0);
     _initEditor(0);
     _updateTreeCounter();
+    _updateSaveStatus();
 
     // Refresh dedup if that tab is visible
     if (_activeTab() === 'dedup') _initDedup();
-    if (_activeTab() === 'hasil') { resultsContainer.innerHTML = ''; }
+    if (_activeTab() === 'hasil' && !resumed) { resultsContainer.innerHTML = ''; }
   }
 
-  // ── Tree navigation ────────────────────────────────────────────────────────
+  // ── Tree navigation (with auto-save) ────────────────────────────────────
 
-  btnPrevTree.addEventListener('click', () => {
-    if (DatasetManager.prev()) _loadCurrentTree();
-  });
-  btnNextTree.addEventListener('click', () => {
-    if (DatasetManager.next()) _loadCurrentTree();
-  });
+  async function _navigateTree(action) {
+    // Auto-save current tree before navigating
+    await _autoSaveCurrentTree();
+    let ok = false;
+    if (action === 'prev') ok = DatasetManager.prev();
+    else if (action === 'next') ok = DatasetManager.next();
+    else if (typeof action === 'number') ok = DatasetManager.goTo(action);
+    if (ok) _loadCurrentTree();
+  }
+
+  btnPrevTree.addEventListener('click', () => _navigateTree('prev'));
+  btnNextTree.addEventListener('click', () => _navigateTree('next'));
   treeSelect.addEventListener('change', () => {
     const idx = parseInt(treeSelect.value, 10);
-    if (DatasetManager.goTo(idx)) _loadCurrentTree();
+    _navigateTree(idx);
   });
+
+  // ── Output folder scan (batch resume discovery) ─────────────────────────
+
+  /**
+   * Scan the chosen output directory for previously-saved tree JSON files
+   * and register their handles with ProjectConfig for lazy resume.
+   * Returns the number of trees matched.
+   */
+  async function _scanOutputDirectory() {
+    if (!ProjectConfig.getOutputDirHandle()) return 0;
+    let map;
+    try { map = await FsOutput.listOutputFiles(); }
+    catch (e) { console.warn('[Resume] scan failed:', e); return 0; }
+    let matched = 0;
+    for (const [treeName, handle] of map) {
+      if (DatasetManager.findByName(treeName) === -1) continue;
+      ProjectConfig.setSavedHandle(treeName, handle);
+      matched++;
+    }
+    console.log('[Resume] discovered', matched, 'saved tree(s) in output folder');
+    return matched;
+  }
+
+  // ── Auto-save & Output ──────────────────────────────────────────────────
+
+  /**
+   * Auto-save the current tree's output JSON if it has been worked on.
+   * Called before navigating away from a tree.
+   */
+  async function _autoSaveCurrentTree() {
+    if (_autoSaving) return;
+    const session = ActiveSession.get();
+    if (!session) return;
+
+    // Only auto-save if there are confirmed links OR the session is dirty
+    const hasWork = session.confirmedLinks.length > 0 || ActiveSession.isDirty();
+    if (!hasWork) return;
+
+    // Already saved this tree AND no new edits since? Skip.
+    if (ProjectConfig.isSaved(session.treeName) && !ActiveSession.isDirty()) return;
+
+    _autoSaving = true;
+    try {
+      await _saveCurrentTreeOutput();
+    } finally {
+      _autoSaving = false;
+    }
+  }
+
+  /**
+   * Compute results and save the output JSON for the current tree.
+   */
+  async function _saveCurrentTreeOutput() {
+    const session = ActiveSession.get();
+    if (!session) return;
+
+    // Compute results (union-find clustering)
+    const result = Results.compute(session);
+    _lastResult = result;
+
+    // Generate output JSON
+    const treeId = ActiveSession.getTreeId() || ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
+    const projectCfg = ProjectConfig.get();
+    const datasetTree = DatasetManager.getTree();
+    const outputJson = OutputSchema.generate(session, result, treeId, projectCfg, datasetTree);
+
+    // Save to output folder or download
+    const filename = `${treeId}__${session.treeName}.json`;
+    const saveResult = await FsOutput.saveJSON(filename, outputJson);
+
+    if (saveResult.ok) {
+      ProjectConfig.markSaved(session.treeName);
+      _updateSaveStatus();
+      _updateSaveCounter();
+      _refreshTreeSelectOption(DatasetManager.getIndex());
+      // Cache the freshly-written file handle so next refresh can lazy-resume.
+      if (saveResult.method === 'filesystem') {
+        try {
+          const dirHandle = ProjectConfig.getOutputDirHandle();
+          if (dirHandle) {
+            const fh = await dirHandle.getFileHandle(filename);
+            ProjectConfig.setSavedHandle(session.treeName, fh);
+          }
+        } catch (e) { /* non-fatal */ }
+      }
+      const method = saveResult.method === 'filesystem' ? 'folder output' : 'download';
+      _showToast(`Tersimpan: ${filename} (${method})`, 'success');
+      console.log('[Output]', filename, '→', saveResult.method);
+    } else {
+      _showToast(`Gagal menyimpan: ${saveResult.error}`, 'error');
+      console.error('[Output] Save failed:', saveResult.error);
+    }
+  }
+
+  // Manual save button
+  btnSaveOutput.addEventListener('click', async () => {
+    btnSaveOutput.disabled = true;
+    btnSaveOutput.textContent = 'Menyimpan...';
+    try {
+      await _saveCurrentTreeOutput();
+      // Also render results in the Hasil tab if visible
+      if (_lastResult) {
+        Results.render(_lastResult, resultsContainer);
+        exportButtons.classList.remove('hidden');
+      }
+    } finally {
+      btnSaveOutput.disabled = false;
+      btnSaveOutput.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan Output`;
+    }
+  });
+
+  // ── Save status indicators ───────────────────────────────────────────────
+
+  function _updateSaveStatus() {
+    if (!treeSaveStatus) return;
+    const session = ActiveSession.get();
+    if (!session) {
+      treeSaveStatus.classList.add('hidden');
+      return;
+    }
+    const saved = ProjectConfig.isSaved(session.treeName);
+    treeSaveStatus.classList.remove('hidden');
+    treeSaveStatus.classList.toggle('save-status--saved', saved);
+    treeSaveStatus.classList.toggle('save-status--unsaved', !saved);
+    treeSaveStatus.textContent = saved ? 'Tersimpan' : 'Belum disimpan';
+    treeSaveStatus.title = saved
+      ? `Output ${ActiveSession.getTreeId()}.json telah disimpan`
+      : 'Belum disimpan — akan auto-save saat pindah pohon';
+  }
+
+  function _updateSaveCounter() {
+    if (!saveCounter) return;
+    const total = DatasetManager.count();
+    const saved = ProjectConfig.getSavedCount();
+    if (saved > 0) {
+      saveCounter.classList.remove('hidden');
+      saveCounter.textContent = `${saved}/${total} tersimpan`;
+    } else {
+      saveCounter.classList.add('hidden');
+    }
+  }
+
+  // ── Toast notifications ──────────────────────────────────────────────────
+
+  function _showToast(message, type = 'info') {
+    if (!toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast--${type}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+
+    // Trigger enter animation
+    requestAnimationFrame(() => toast.classList.add('toast--visible'));
+
+    // Auto-remove after 4s
+    setTimeout(() => {
+      toast.classList.remove('toast--visible');
+      toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+      // Fallback removal if transition doesn't fire
+      setTimeout(() => toast.remove(), 500);
+    }, 4000);
+  }
 
   // ── Folder + session inputs ────────────────────────────────────────────────
 
@@ -140,10 +450,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
     try {
+      if (DatasetManager.count() === 0) {
+        alert('Dataset belum dimuat. Klik "Muat Folder" dulu, baru "Muat Sesi".');
+        return;
+      }
       const json = JSON.parse(await file.text());
-      const treeIdx = DatasetManager.findByName(json.treeName);
+
+      // Auto-detect format. Output JSON (from "Simpan Output") has `images` +
+      // `bunches`; native session JSON has `sides` + `confirmedLinks`.
+      let sessionJson = json;
+      const isOutputFormat = json && json.images && json.bunches && !json.sides;
+      if (isOutputFormat) {
+        sessionJson = OutputSchema.toSessionJSON(json);
+        if (json.metadata) {
+          if (json.metadata.date) ProjectConfig.setDate(json.metadata.date);
+          if (json.metadata.varietas) ProjectConfig.setVarietas(json.metadata.varietas);
+        }
+        // Already persisted to disk → don't auto-save again on next navigate.
+        ProjectConfig.markSaved(json.tree_name);
+      }
+
+      const treeIdx = DatasetManager.findByName(sessionJson.treeName);
       if (treeIdx === -1) {
-        alert(`Pohon "${json.treeName}" tidak ditemukan di dataset yang dimuat. Muat foldernya dulu.`);
+        alert(`Pohon "${sessionJson.treeName}" tidak ditemukan di dataset yang dimuat. Muat folder dataset yang berisi pohon tersebut dulu.`);
         return;
       }
       DatasetManager.goTo(treeIdx);
@@ -151,12 +480,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const tree = DatasetManager.getTree();
       emptyState.classList.add('hidden');
       editorArea.classList.remove('hidden');
-      await ActiveSession.fromJSON(json, tree);
+      await ActiveSession.fromJSON(sessionJson, tree);
+
+      // Re-assign treeId from ProjectConfig so save status / output filename stay consistent.
+      const treeId = ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
+      ActiveSession.setTreeId(treeId);
+
       _currentSide = 0;
       _currentPair = 0;
       _dedupInitialized = false;
+      _rebuildSidePills();
       _activateSidePill(0);
       _initEditor(0);
+      _updateSaveStatus();
+      _updateSaveCounter();
       // Auto-compute results so the hasil tab is populated immediately
       _lastResult = Results.compute(ActiveSession.get());
       Results.render(_lastResult, resultsContainer);
@@ -198,13 +535,32 @@ document.addEventListener('DOMContentLoaded', () => {
     _currentSide = sideIndex;
   }
 
-  sidePills.forEach(pill => {
-    pill.addEventListener('click', () => {
+  function _rebuildSidePills() {
+    if (!sidePillsContainer) return;
+    const session = ActiveSession.get();
+    const labels = session ? session.sides.map(s => s.label) : (window.TREE_SIDE_LABELS || []);
+    sidePillsContainer.innerHTML = '';
+    labels.forEach((label, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'side-pill' + (i === _currentSide ? ' active' : '');
+      btn.dataset.side = String(i);
+      btn.textContent = label;
+      sidePillsContainer.appendChild(btn);
+    });
+    sidePills = Array.from(sidePillsContainer.querySelectorAll('.side-pill'));
+  }
+
+  // Event delegation — survives pill rebuilds
+  if (sidePillsContainer) {
+    sidePillsContainer.addEventListener('click', (e) => {
+      const pill = e.target.closest('.side-pill');
+      if (!pill) return;
       const si = parseInt(pill.dataset.side);
+      if (Number.isNaN(si)) return;
       _activateSidePill(si);
       _initEditor(si);
     });
-  });
+  }
 
   function _updateFileInfo(sideIndex) {
     if (!fileInfo) return;
@@ -273,27 +629,50 @@ document.addEventListener('DOMContentLoaded', () => {
   function _initDedup() {
     if (!ActiveSession.get()) return;
     DedupUI.init(dedupLeftCanvas, dedupRightCanvas, dedupSuggestionsEl, dedupLinksEl);
+    _updateDedupMagnifierBtn();
     _dedupInitialized = true;
     _updateDedupPairUI();
     DedupUI.showPair(_currentPair);
   }
 
+  function _updateDedupMagnifierBtn() {
+    if (!btnToggleDedupMagnifier || !DedupUI.getMagnifierEnabled) return;
+    const on = DedupUI.getMagnifierEnabled();
+    btnToggleDedupMagnifier.classList.toggle('active', on);
+    btnToggleDedupMagnifier.title = on ? 'Matikan Magnifier [M]' : 'Kaca pembesar [M]';
+  }
+
   function _updateDedupPairUI() {
-    const [iA, iB] = ADJACENT_PAIRS[_currentPair];
-    const lA = TREE_SIDE_LABELS[iA], lB = TREE_SIDE_LABELS[iB];
-    dedupPairLabel.textContent = `${lA} ↔ ${lB}`;
+    const pairs = window.ADJACENT_PAIRS || [];
+    if (!pairs.length || !pairs[_currentPair]) return;
+    const [iA, iB] = pairs[_currentPair];
+    const labels = window.TREE_SIDE_LABELS || [];
+    const lA = labels[iA] || `Sisi ${iA + 1}`;
+    const lB = labels[iB] || `Sisi ${iB + 1}`;
+    // Compass labels only meaningful for N=4; omit otherwise.
+    const compassA = (labels.length === 4 && SIDE_COMPASS[iA]) ? SIDE_COMPASS[iA] : '';
+    const compassB = (labels.length === 4 && SIDE_COMPASS[iB]) ? SIDE_COMPASS[iB] : '';
+    dedupPairLabel.textContent = `${lB} ↔ ${lA}`;
     // Display: left=sideB, right=sideA (shared edges face center between canvases)
-    dedupLeftLabel.innerHTML  = `${lB} <span class="compass-label">${SIDE_COMPASS[iB]}</span><span class="edge-arrow">tepi kanan →</span>`;
-    dedupRightLabel.innerHTML = `${lA} <span class="compass-label">${SIDE_COMPASS[iA]}</span><span class="edge-arrow">← tepi kiri</span>`;
+    dedupLeftLabel.innerHTML = `
+      <span class="dedup-label-main">${lB}${compassB ? ` <span class="compass-label">${compassB}</span>` : ''}</span>
+      <span class="edge-arrow edge-arrow--right">tepi kanan →</span>
+    `;
+    dedupRightLabel.innerHTML = `
+      <span class="dedup-label-main">${lA}${compassA ? ` <span class="compass-label">${compassA}</span>` : ''}</span>
+      <span class="edge-arrow edge-arrow--left">← tepi kiri</span>
+    `;
   }
 
   btnPrevPair.addEventListener('click', () => {
-    _currentPair = (_currentPair + 1) % 4;
+    const nPairs = (window.ADJACENT_PAIRS || []).length || 4;
+    _currentPair = (_currentPair + 1) % nPairs;
     _updateDedupPairUI();
     DedupUI.showPair(_currentPair, 'left');
   });
   btnNextPair.addEventListener('click', () => {
-    _currentPair = (_currentPair + 3) % 4;
+    const nPairs = (window.ADJACENT_PAIRS || []).length || 4;
+    _currentPair = (_currentPair + nPairs - 1) % nPairs;
     _updateDedupPairUI();
     DedupUI.showPair(_currentPair, 'right');
   });
@@ -304,19 +683,80 @@ document.addEventListener('DOMContentLoaded', () => {
     DedupUI.refresh();
   });
 
+  if (btnToggleDedupMagnifier) {
+    btnToggleDedupMagnifier.addEventListener('click', () => {
+      DedupUI.setMagnifierEnabled(!DedupUI.getMagnifierEnabled());
+      _updateDedupMagnifierBtn();
+    });
+  }
+
+  // ── Dedup edit toolbar (change class / delete selected bbox) ───────────────
+
+  const dedupEditToolbar = document.getElementById('dedup-edit-toolbar');
+  const dedupEditLabel   = document.getElementById('dedup-edit-label');
+  const btnDedupDelete   = document.getElementById('btn-dedup-delete');
+
+  function _refreshDedupEditToolbar() {
+    if (!dedupEditToolbar) return;
+    const info = DedupUI.getSelectedInfo && DedupUI.getSelectedInfo();
+    if (info) {
+      dedupEditToolbar.classList.add('active');
+      dedupEditLabel.textContent = `${info.sideLabel} · ${info.className}`;
+    } else {
+      dedupEditToolbar.classList.remove('active');
+      dedupEditLabel.textContent = 'Pilih bbox';
+    }
+  }
+
+  // Class buttons in dedup edit toolbar
+  document.querySelectorAll('[data-dedup-class]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (DedupUI.changeSelectedClass(btn.dataset.dedupClass)) {
+        _refreshDedupEditToolbar();
+      }
+    });
+  });
+
+  if (btnDedupDelete) {
+    btnDedupDelete.addEventListener('click', () => {
+      if (DedupUI.deleteSelected()) _refreshDedupEditToolbar();
+    });
+  }
+
+  // Poll for selection changes to keep toolbar label in sync
+  // (DedupUI drives selection internally via clicks/drawings; a lightweight
+  //  interval avoids coupling it to app.js via callbacks.)
+  setInterval(() => {
+    if (_activeTab() === 'dedup') _refreshDedupEditToolbar();
+  }, 250);
+
+  // Collapsible panels toggle
+  document.getElementById('btn-toggle-panels').addEventListener('click', () => {
+    const panels = document.getElementById('dedup-panels-container');
+    const btn = document.getElementById('btn-toggle-panels');
+    panels.classList.toggle('collapsed');
+    btn.innerHTML = panels.classList.contains('collapsed') ? '&#9654; Saran &amp; Link' : '&#9660; Saran &amp; Link';
+  });
+
   // ── Hasil ──────────────────────────────────────────────────────────────────
 
-  btnHitung.addEventListener('click', () => {
+  btnHitung.addEventListener('click', async () => {
     const session = ActiveSession.get();
     if (!session) return;
     _lastResult = Results.compute(session);
     Results.render(_lastResult, resultsContainer);
     exportButtons.classList.remove('hidden');
+
+    // Also auto-save output
+    await _saveCurrentTreeOutput();
   });
 
   btnExportYolo.addEventListener('click', () => {
     const session = ActiveSession.get();
-    if (session) Results.exportYolo(session);
+    if (!session) return;
+    // Use mismatch-aware export when results are computed
+    if (_lastResult) Results.exportYoloWithMismatch(session, _lastResult);
+    else Results.exportYolo(session);
   });
 
   btnExportJSON.addEventListener('click', () => {
@@ -329,21 +769,51 @@ document.addEventListener('DOMContentLoaded', () => {
     if (session) Results.exportCSV(session, _lastResult);
   });
 
+  btnExportIdentity.addEventListener('click', () => {
+    const session = ActiveSession.get();
+    if (session && _lastResult) Results.exportIdentityJSON(session, _lastResult);
+  });
+
   // ── Global keyboard shortcuts ──────────────────────────────────────────────
 
   document.addEventListener('keydown', (e) => {
-    // Skip when typing in form controls
-    if (e.target.closest('input, select, textarea')) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const tab = _activeTab();
 
-    // Magnifier toggle — works even when editor canvas has focus
-    if ((e.key === 'm' || e.key === 'M') && tab === 'koreksi') {
-      BBoxEditor.setMagnifierGlobal(!BBoxEditor.getMagnifierEnabled());
-      _updateMagnifierBtn();
+    // Dedup tab: arrow keys always navigate pairs, even if a form control has focus
+    if (tab === 'dedup' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      if (e.target.closest('input, select, textarea')) e.target.blur();
+      const nSides = ActiveSession.get() ? ActiveSession.get().sides.length : 4;
+      const nPairs = (window.ADJACENT_PAIRS || []).length || nSides;
+      if (e.key === 'ArrowLeft') {
+        _currentPair = (_currentPair + 1) % nPairs;
+        _updateDedupPairUI(); DedupUI.showPair(_currentPair, 'left');
+      } else {
+        _currentPair = (_currentPair + nPairs - 1) % nPairs;
+        _updateDedupPairUI(); DedupUI.showPair(_currentPair, 'right');
+      }
       e.preventDefault();
       return;
+    }
+
+    // Skip when typing in form controls
+    if (e.target.closest('input, select, textarea')) return;
+
+    // Magnifier toggle — works even when editor canvas has focus
+    if (e.key === 'm' || e.key === 'M') {
+      if (tab === 'koreksi') {
+        BBoxEditor.setMagnifierGlobal(!BBoxEditor.getMagnifierEnabled());
+        _updateMagnifierBtn();
+        e.preventDefault();
+        return;
+      }
+      if (tab === 'dedup') {
+        DedupUI.setMagnifierEnabled(!DedupUI.getMagnifierEnabled());
+        _updateDedupMagnifierBtn();
+        e.preventDefault();
+        return;
+      }
     }
 
     // Skip remaining shortcuts when canvas has focus (bbox editor handles its own keys)
@@ -351,22 +821,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     switch (e.key) {
       case '[':
-        if (DatasetManager.count() > 0 && DatasetManager.prev()) _loadCurrentTree();
+        if (DatasetManager.count() > 0) { _navigateTree('prev'); }
         e.preventDefault(); break;
       case ']':
-        if (DatasetManager.count() > 0 && DatasetManager.next()) _loadCurrentTree();
+        if (DatasetManager.count() > 0) { _navigateTree('next'); }
         e.preventDefault(); break;
     }
+
+    const nSides = ActiveSession.get() ? ActiveSession.get().sides.length : 4;
 
     if (tab === 'koreksi') {
       switch (e.key) {
         case 'q': case 'Q': {
-          const si = (_currentSide + 3) % 4;
+          const si = (_currentSide + nSides - 1) % nSides;
           _activateSidePill(si); _initEditor(si);
           e.preventDefault(); break;
         }
         case 'e': case 'E': {
-          const si = (_currentSide + 1) % 4;
+          const si = (_currentSide + 1) % nSides;
           _activateSidePill(si); _initEditor(si);
           e.preventDefault(); break;
         }
@@ -375,18 +847,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (tab === 'dedup') {
       switch (e.key) {
-        case 'ArrowLeft':
-          _currentPair = (_currentPair + 1) % 4;
-          _updateDedupPairUI(); DedupUI.showPair(_currentPair, 'left');
-          e.preventDefault(); break;
-        case 'ArrowRight':
-          _currentPair = (_currentPair + 3) % 4;
-          _updateDedupPairUI(); DedupUI.showPair(_currentPair, 'right');
-          e.preventDefault(); break;
         case 'r': case 'R':
           if (!ActiveSession.get()) break;
           ActiveSession.runSuggestions(); DedupUI.refresh();
           e.preventDefault(); break;
+        case '1': case '2': case '3': case '4':
+          if (DedupUI.changeSelectedClass(e.key)) {
+            _refreshDedupEditToolbar();
+            e.preventDefault();
+          }
+          break;
+        case 'Delete': case 'Backspace':
+          if (DedupUI.deleteSelected()) {
+            _refreshDedupEditToolbar();
+            e.preventDefault();
+          }
+          break;
       }
     }
   });

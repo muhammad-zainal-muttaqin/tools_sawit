@@ -38,29 +38,33 @@
 
       <!-- Dataset toolbar -->
       <div class="dataset-toolbar" id="dataset-toolbar">
-        <!-- File inputs (hidden) -->
-        <input type="file" id="input-folder" webkitdirectory multiple accept=".jpg,.jpeg,.png,.txt" class="hidden">
-        <input type="file" id="input-session" accept=".json" class="hidden">
+        <!-- File inputs (visually hidden but still clickable from JS) -->
+        <input type="file" id="input-folder" webkitdirectory multiple accept=".jpg,.jpeg,.png,.txt" class="sr-only" tabindex="-1" aria-hidden="true">
+        <input type="file" id="input-session" accept=".json" class="sr-only" tabindex="-1" aria-hidden="true">
 
-        <button class="btn btn--outline btn--sm" id="btn-load-folder">
+        <button type="button" class="btn btn--outline btn--sm" id="btn-load-folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           Muat Folder
         </button>
 
-        <button class="btn btn--ghost btn--sm" id="btn-load-session" title="Muat sesi tersimpan">
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-load-session" title="Muat output JSON yang sudah disimpan untuk melanjutkan kerja">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           Muat Sesi
         </button>
 
         <div class="tree-nav hidden" id="tree-nav">
-          <button class="btn-icon btn-icon--sm" id="btn-prev-tree" title="Pohon sebelumnya">
+          <button class="btn-icon btn-icon--sm" id="btn-prev-tree" title="Pohon sebelumnya [">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
           <select class="tree-select" id="tree-select" title="Pilih pohon"></select>
-          <button class="btn-icon btn-icon--sm" id="btn-next-tree" title="Pohon berikutnya">
+          <span class="tree-meta tree-meta--split" id="tree-split" aria-live="polite"></span>
+          <span class="tree-meta tree-meta--sides" id="tree-sides" aria-live="polite"></span>
+          <span class="tree-save-status hidden" id="tree-save-status" title="Status simpan"></span>
+          <button class="btn-icon btn-icon--sm" id="btn-next-tree" title="Pohon berikutnya ]">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
           </button>
           <span class="tree-counter" id="tree-counter"></span>
+          <span class="save-counter hidden" id="save-counter" title="Jumlah pohon tersimpan"></span>
         </div>
       </div>
     </div>
@@ -113,10 +117,7 @@
           <!-- Side pills + toolbar -->
           <div class="koreksi-sidebar">
             <div class="side-pills" id="side-pills">
-              <button class="side-pill active" data-side="0">Depan</button>
-              <button class="side-pill" data-side="1">Kanan</button>
-              <button class="side-pill" data-side="2">Belakang</button>
-              <button class="side-pill" data-side="3">Kiri</button>
+              <!-- Populated dynamically by app.js based on tree's side count -->
             </div>
 
             <div class="editor-toolbar">
@@ -131,7 +132,7 @@
               </div>
               <div class="toolbar-group">
                 <span class="toolbar-label">Aksi</span>
-                <button class="btn btn--ghost btn--sm" id="btn-delete-bbox" disabled title="Hapus [Del]">
+                <button class="btn btn--ghost btn--sm" id="btn-delete-bbox" title="Hapus [Del]">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                   Hapus
                 </button>
@@ -191,29 +192,54 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             Jalankan Saran
           </button>
-          <div class="dedup-hint">Klik bbox kiri → klik bbox kanan → tautkan</div>
-          <div class="dedup-shortcuts"><kbd>←</kbd><kbd>→</kbd> pasangan &nbsp;·&nbsp; <kbd>R</kbd> jalankan saran</div>
+          <button class="btn btn--ghost btn--sm active" id="btn-toggle-dedup-magnifier" title="Matikan Magnifier [M]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+            Magnifier
+          </button>
+
+          <!-- Dedup edit toolbar: change class / delete for the currently selected bbox -->
+          <div class="dedup-edit-toolbar" id="dedup-edit-toolbar">
+            <span class="dedup-edit-label" id="dedup-edit-label">Pilih bbox</span>
+            <div class="dedup-edit-classes">
+              <button class="btn-class btn-b1 btn-class--xs" data-dedup-class="1" title="Ganti ke B1 [1]">B1</button>
+              <button class="btn-class btn-b2 btn-class--xs" data-dedup-class="2" title="Ganti ke B2 [2]">B2</button>
+              <button class="btn-class btn-b3 btn-class--xs" data-dedup-class="3" title="Ganti ke B3 [3]">B3</button>
+              <button class="btn-class btn-b4 btn-class--xs" data-dedup-class="4" title="Ganti ke B4 [4]">B4</button>
+            </div>
+            <button class="btn btn--ghost btn--sm" id="btn-dedup-delete" title="Hapus bbox [Del]">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              Hapus
+            </button>
+          </div>
+
+          <div class="dedup-hint">Klik bbox kiri → klik bbox kanan → tautkan · Drag kosong → bbox baru</div>
+          <div class="dedup-shortcuts"><kbd>←</kbd><kbd>→</kbd> pasangan &nbsp;·&nbsp; <kbd>R</kbd> saran &nbsp;·&nbsp; <kbd>M</kbd> magnifier &nbsp;·&nbsp; <kbd>1-4</kbd> kelas &nbsp;·&nbsp; <kbd>Del</kbd> hapus</div>
         </div>
 
         <div class="dedup-canvases">
           <div class="dedup-canvas-block">
             <div class="dedup-canvas-label" id="dedup-left-label">Depan</div>
+            <div class="dedup-canvas-info" id="dedup-left-info"></div>
             <canvas id="dedup-left-canvas" class="dedup-canvas"></canvas>
           </div>
           <div class="dedup-canvas-block">
             <div class="dedup-canvas-label" id="dedup-right-label">Kanan</div>
+            <div class="dedup-canvas-info" id="dedup-right-info"></div>
             <canvas id="dedup-right-canvas" class="dedup-canvas"></canvas>
           </div>
         </div>
 
-        <div class="dedup-panels">
-          <div class="dedup-panel">
-            <h3 class="dedup-panel-title">Saran Algoritma</h3>
-            <div id="dedup-suggestions"></div>
-          </div>
-          <div class="dedup-panel">
-            <h3 class="dedup-panel-title">Link Terkonfirmasi</h3>
-            <div id="dedup-links"></div>
+        <div class="dedup-panels-wrapper">
+          <button class="dedup-panels-toggle" id="btn-toggle-panels">&#9660; Saran &amp; Link</button>
+          <div class="dedup-panels" id="dedup-panels-container">
+            <div class="dedup-panel">
+              <h3 class="dedup-panel-title">Saran Algoritma</h3>
+              <div id="dedup-suggestions"></div>
+            </div>
+            <div class="dedup-panel">
+              <h3 class="dedup-panel-title">Link Terkonfirmasi</h3>
+              <div id="dedup-links"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -225,10 +251,15 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-5 5"/></svg>
             Hitung
           </button>
+          <button class="btn btn--accent btn--sm" id="btn-save-output" title="Simpan output JSON ke folder output">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Simpan Output
+          </button>
           <div class="export-buttons hidden" id="export-buttons">
             <button class="btn btn--outline btn--sm" id="btn-export-yolo">Export YOLO</button>
             <button class="btn btn--outline btn--sm" id="btn-export-json">Export JSON / Simpan</button>
             <button class="btn btn--outline btn--sm" id="btn-export-csv">Export CSV</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-identity">Export Identitas JSON</button>
           </div>
         </div>
         <div id="results-container"></div>
@@ -236,6 +267,48 @@
 
     </div><!-- /editor-area -->
   </main>
+
+  <!-- Project Config Modal -->
+  <div class="modal-overlay hidden" id="modal-project-config">
+    <div class="modal">
+      <div class="modal__header">
+        <h2 class="modal__title">Konfigurasi Project</h2>
+        <p class="modal__desc">Atur parameter sebelum mulai annotasi. Tree ID akan di-generate otomatis.</p>
+      </div>
+      <div class="modal__body">
+        <div class="form-group">
+          <label class="form-label" for="cfg-date">Tanggal Foto</label>
+          <input type="date" class="form-input" id="cfg-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-varietas">Varietas</label>
+          <input type="text" class="form-input" id="cfg-varietas" placeholder="e.g. DAMIMAS" autocomplete="off">
+          <span class="form-hint">Auto-detect dari nama file, bisa diubah manual</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Folder Output</label>
+          <div class="form-row">
+            <button class="btn btn--outline btn--sm" id="btn-pick-output-dir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Pilih Folder
+            </button>
+            <span class="form-value" id="cfg-output-dir-name">Belum dipilih</span>
+          </div>
+          <span class="form-hint" id="cfg-fs-warning" style="display:none;color:var(--c-warning)">Browser ini tidak mendukung File System Access API. Output akan di-download otomatis.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Preview Tree ID</label>
+          <span class="form-value form-value--mono" id="cfg-preview-id">—</span>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--primary" id="btn-cfg-confirm">Mulai Annotasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toast-container"></div>
 
   <!-- Scripts — load order matters -->
   <script src="js/yolo-io.js"></script>
@@ -246,6 +319,9 @@
   <script src="js/bbox-editor.js"></script>
   <script src="js/dedup-ui.js"></script>
   <script src="js/results.js"></script>
+  <script src="js/project.js"></script>
+  <script src="js/output-schema.js"></script>
+  <script src="js/fs-output.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

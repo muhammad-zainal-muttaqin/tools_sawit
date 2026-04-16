@@ -26,6 +26,17 @@ const DedupUI = (() => {
   let _colorSeq = 0;
   let _listenersAttached = false;
 
+  // Edit state: which bbox is currently selected for class change / delete
+  // { sideIdx: number, bboxId: string } | null
+  let _editSelection = null;
+
+  // Draw/interaction state on mousedown
+  // { side: 'left'|'right', sideIdx, mode: 'click'|'draw', bboxId?, ix0,iy0,ix1,iy1, moved }
+  let _drawState = null;
+  const DRAG_THRESHOLD_PX = 3;   // image px
+  const MIN_NEW_BBOX_PX   = 4;   // image px
+  const DEFAULT_NEW_CLASS_ID = 1; // B2
+
   // Cached bboxes/highlights for magnifier use in mousemove
   let _lastBboxesLeft     = [], _lastBboxesRight     = [];
   let _lastHighlightsLeft = new Map(), _lastHighlightsRight = new Map();
@@ -36,6 +47,7 @@ const DedupUI = (() => {
   const MAG_ZOOM_MAX  = 8.0;
   const MAG_ZOOM_STEP = 0.3;
   let _magZoom = 3.8;          // adjustable via scroll wheel
+  let _magEnabled = true;
   let _lastMagState = null;    // cached args for re-render on zoom change
 
   let _magEl = null, _magCanvas = null, _magCtx = null;
@@ -73,6 +85,7 @@ const DedupUI = (() => {
   }
 
   function _showMagnifier(sourceCanvas, img, tr, bboxes, highlights, e) {
+    if (!_magEnabled) { _hideMagnifier(); return; }
     if (!img || !tr) { _hideMagnifier(); return; }
     _ensureMagnifier();
 
@@ -186,14 +199,30 @@ const DedupUI = (() => {
     ['Kiri', 'Depan'],
   ];
 
+  // ── Bbox summary helper ────────────────────────────────────────────────────
+
+  function _bboxSummary(bboxes) {
+    if (!bboxes || !bboxes.length) return '0 bbox';
+    const counts = {};
+    bboxes.forEach(b => { counts[b.className] = (counts[b.className] || 0) + 1; });
+    const parts = Object.entries(counts).sort().map(([cls, n]) => `${n}× ${cls}`);
+    return `${bboxes.length} bbox: ${parts.join(', ')}`;
+  }
+
   // ── Transforms ────────────────────────────────────────────────────────────
 
-  function _makeTr(canvas, imgW, imgH) {
+  function _makeTr(canvas, imgW, imgH, anchor) {
     const dpr = _dpr();
     const displayW = canvas.clientWidth;
     const displayH = canvas.clientHeight;
     const scale = Math.min(displayW / imgW, displayH / imgH);
-    const offX = (displayW - imgW * scale) / 2;
+    // anchor: 'right' pushes the image to the right edge (shared seam for LEFT canvas / sideB),
+    //         'left'  pushes to the left edge (shared seam for RIGHT canvas / sideA),
+    //         default center.
+    let offX;
+    if      (anchor === 'right') offX = displayW - imgW * scale;
+    else if (anchor === 'left')  offX = 0;
+    else                         offX = (displayW - imgW * scale) / 2;
     const offY = (displayH - imgH * scale) / 2;
     return {
       scale,
@@ -236,7 +265,7 @@ const DedupUI = (() => {
 
   // ── Drawing ────────────────────────────────────────────────────────────────
 
-  function _renderCanvas(canvas, img, tr, bboxes, highlights, guideYNorm) {
+  function _renderCanvas(canvas, img, tr, bboxes, highlights, guideYNorm, editSelId, drawRect) {
     if (!canvas || !img || !tr) return;
     const dpr = _dpr();
     canvas.width  = canvas.clientWidth  * dpr;
@@ -282,7 +311,7 @@ const DedupUI = (() => {
         ctx.textBaseline = 'alphabetic';
       }
 
-      // Pending selection glow
+      // Pending link selection glow (left bbox waiting for right pair)
       if (b.id === _pendingLeft) {
         ctx.fillStyle = '#fff4';
         ctx.fillRect(btl.x, btl.y, bw, bh);
@@ -294,6 +323,15 @@ const DedupUI = (() => {
       ctx.lineWidth = lw;
       ctx.strokeRect(btl.x, btl.y, bw, bh);
 
+      // Edit selection ring (cyan dashed outer)
+      if (b.id === editSelId) {
+        ctx.strokeStyle = '#22d3ee';
+        ctx.lineWidth = Math.max(1.5, lineW * 1.2);
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(btl.x - 2, btl.y - 2, bw + 4, bh + 4);
+        ctx.setLineDash([]);
+      }
+
       // Label
       const label = `#${idx + 1} ${b.className}`;
       const fontSize = Math.max(10, tr.scaleToCanvas(11));
@@ -304,6 +342,17 @@ const DedupUI = (() => {
       ctx.fillStyle = '#fff';
       ctx.fillText(label, btl.x + 2, Math.max(fontSize, btl.y - 2));
     });
+
+    // Drag-drawing in progress
+    if (drawRect) {
+      const dtl = tr.imageToCanvas(Math.min(drawRect.x1, drawRect.x2), Math.min(drawRect.y1, drawRect.y2));
+      const dbr = tr.imageToCanvas(Math.max(drawRect.x1, drawRect.x2), Math.max(drawRect.y1, drawRect.y2));
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(dtl.x, dtl.y, dbr.x - dtl.x, dbr.y - dtl.y);
+      ctx.setLineDash([]);
+    }
 
     // Horizontal guideline
     if (guideYNorm !== null && guideYNorm >= 0) {
@@ -355,8 +404,9 @@ const DedupUI = (() => {
       _loadImg(sB.imageUrl), _loadImg(sA.imageUrl),
     ]);
 
-    if (_leftImage)  _leftTr  = _makeTr(_leftCanvas,  _leftImage.naturalWidth,  _leftImage.naturalHeight);
-    if (_rightImage) _rightTr = _makeTr(_rightCanvas, _rightImage.naturalWidth, _rightImage.naturalHeight);
+    // Anchor each canvas toward the shared seam so images meet tightly in the middle.
+    if (_leftImage)  _leftTr  = _makeTr(_leftCanvas,  _leftImage.naturalWidth,  _leftImage.naturalHeight, 'right');
+    if (_rightImage) _rightTr = _makeTr(_rightCanvas, _rightImage.naturalWidth, _rightImage.naturalHeight, 'left');
 
     const pairLinks = session.confirmedLinks.filter(
       l => (l.sideA === iA && l.sideB === iB) || (l.sideA === iB && l.sideB === iA)
@@ -370,8 +420,21 @@ const DedupUI = (() => {
     _lastBboxesLeft      = sB.bboxes;
     _lastBboxesRight     = sA.bboxes;
 
-    _renderCanvas(_leftCanvas,  _leftImage,  _leftTr,  sB.bboxes, _lastHighlightsLeft,  _guideY);
-    _renderCanvas(_rightCanvas, _rightImage, _rightTr, sA.bboxes, _lastHighlightsRight, _guideY);
+    const editSelLeftId  = _editSelection && _editSelection.sideIdx === iB ? _editSelection.bboxId : null;
+    const editSelRightId = _editSelection && _editSelection.sideIdx === iA ? _editSelection.bboxId : null;
+    const leftDraw  = (_drawState && _drawState.mode === 'draw' && _drawState.moved && _drawState.side === 'left')
+      ? { x1: _drawState.ix0, y1: _drawState.iy0, x2: _drawState.ix1, y2: _drawState.iy1 } : null;
+    const rightDraw = (_drawState && _drawState.mode === 'draw' && _drawState.moved && _drawState.side === 'right')
+      ? { x1: _drawState.ix0, y1: _drawState.iy0, x2: _drawState.ix1, y2: _drawState.iy1 } : null;
+
+    _renderCanvas(_leftCanvas,  _leftImage,  _leftTr,  sB.bboxes, _lastHighlightsLeft,  _guideY, editSelLeftId,  leftDraw);
+    _renderCanvas(_rightCanvas, _rightImage, _rightTr, sA.bboxes, _lastHighlightsRight, _guideY, editSelRightId, rightDraw);
+
+    // Bbox info overlays
+    const leftInfoEl  = document.getElementById('dedup-left-info');
+    const rightInfoEl = document.getElementById('dedup-right-info');
+    if (leftInfoEl)  leftInfoEl.textContent  = _bboxSummary(sB.bboxes);
+    if (rightInfoEl) rightInfoEl.textContent = _bboxSummary(sA.bboxes);
 
     _renderSuggestions(pairSuggestions, pairLinks.length);
     _renderLinks(pairLinks, iA, iB);
@@ -420,7 +483,9 @@ const DedupUI = (() => {
       const label = document.createElement('span');
       label.className = 'dedup-suggestion-label';
       const scoreStr = (sug.score * 100).toFixed(0);
-      label.textContent = `${bA.className} (${TREE_SIDE_LABELS[iA]}) ↔ ${bB.className} (${TREE_SIDE_LABELS[iB]}) — ${scoreStr}%`;
+      const mismatch = bA.className !== bB.className;
+      // Display LEFT (sideB) first, then RIGHT (sideA) to match visual layout
+      label.textContent = `${bB.className} (${TREE_SIDE_LABELS[iB]}) ↔ ${bA.className} (${TREE_SIDE_LABELS[iA]}) — ${scoreStr}%${mismatch ? ' ⚠' : ''}`;
 
       const terima = document.createElement('button');
       terima.className = 'btn btn-xs btn-success';
@@ -451,13 +516,13 @@ const DedupUI = (() => {
     const session = ActiveSession.get();
     links.forEach((link, i) => {
       const color = _colorForLink(link.linkId);
-      // Normalize direction for display
-      const sideAIdx = link.sideA === iA ? link.sideA : link.sideB;
-      const sideBIdx = link.sideA === iA ? link.sideB : link.sideA;
-      const bIdA = link.sideA === iA ? link.bboxIdA : link.bboxIdB;
-      const bIdB = link.sideA === iA ? link.bboxIdB : link.bboxIdA;
-      const bA = session.sides[sideAIdx].bboxes.find(b => b.id === bIdA);
-      const bB = session.sides[sideBIdx].bboxes.find(b => b.id === bIdB);
+      // Normalize: put LEFT-canvas side (iB) first in label for visual consistency
+      const leftIdx  = link.sideA === iB ? link.sideA : link.sideB;
+      const rightIdx = link.sideA === iB ? link.sideB : link.sideA;
+      const bIdLeft  = link.sideA === iB ? link.bboxIdA : link.bboxIdB;
+      const bIdRight = link.sideA === iB ? link.bboxIdB : link.bboxIdA;
+      const bLeft  = session.sides[leftIdx].bboxes.find(b => b.id === bIdLeft);
+      const bRight = session.sides[rightIdx].bboxes.find(b => b.id === bIdRight);
 
       const row = document.createElement('div');
       row.className = 'dedup-link-row';
@@ -469,7 +534,8 @@ const DedupUI = (() => {
 
       const label = document.createElement('span');
       label.className = 'dedup-link-label';
-      label.textContent = `${bA ? bA.className : '?'} (${TREE_SIDE_LABELS[sideAIdx]}) ↔ ${bB ? bB.className : '?'} (${TREE_SIDE_LABELS[sideBIdx]})`;
+      const classMismatch = bLeft && bRight && bLeft.className !== bRight.className;
+      label.textContent = `${bLeft ? bLeft.className : '?'} (${TREE_SIDE_LABELS[leftIdx]}) ↔ ${bRight ? bRight.className : '?'} (${TREE_SIDE_LABELS[rightIdx]})${classMismatch ? ' ⚠' : ''}`;
 
       const hapus = document.createElement('button');
       hapus.className = 'btn btn-xs btn-danger';
@@ -497,61 +563,150 @@ const DedupUI = (() => {
     return null;
   }
 
-  function _onLeftClick(e) {
-    // Left canvas = sideB
-    if (!_leftTr || !_leftImage) return;
-    const { cx, cy } = _canvasCoords(_leftCanvas, e);
-    const { x, y } = _leftTr.canvasToImage(cx, cy);
-    const session = ActiveSession.get();
-    if (!session) return;
-    const [, iB] = ADJACENT_PAIRS[_pairIndex];
-    const hit = _hitBbox(session.sides[iB].bboxes, x, y);
-    if (hit) {
-      _pendingLeft = hit.id;   // sideB bbox id
-      _renderPair();
-    } else {
-      _pendingLeft = null;
-      _renderPair();
-    }
+  function _newBboxId() {
+    return 'db-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
   }
 
-  function _onRightClick(e) {
-    // Right canvas = sideA
-    if (!_rightTr || !_rightImage) return;
-    const { cx, cy } = _canvasCoords(_rightCanvas, e);
-    const { x, y } = _rightTr.canvasToImage(cx, cy);
+  function _clampImg(ix, iy, img) {
+    return {
+      ix: Math.max(0, Math.min(img.naturalWidth,  ix)),
+      iy: Math.max(0, Math.min(img.naturalHeight, iy)),
+    };
+  }
+
+  function _handleBboxSelection(side, sideIdx, bboxId) {
+    // Always mark this as the edit-focused bbox
+    _editSelection = { sideIdx, bboxId };
+
     const session = ActiveSession.get();
     if (!session) return;
     const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
-    const hit = _hitBbox(session.sides[iA].bboxes, x, y);
-    if (hit && _pendingLeft) {
-      // _pendingLeft = sideB bbox, hit.id = sideA bbox
-      ActiveSession.addManualLink(iA, hit.id, iB, _pendingLeft);
-      _pendingLeft = null;
-      _renderPair();
-    } else if (hit) {
-      // Highlight partner if this sideA bbox is already linked
-      const linked = session.confirmedLinks.find(
-        l => (l.sideA === iA && l.bboxIdA === hit.id) ||
-             (l.sideB === iA && l.bboxIdB === hit.id)
-      );
-      if (linked) {
-        // _pendingLeft should be the sideB bbox id
-        _pendingLeft = linked.sideA === iB ? linked.bboxIdA : linked.bboxIdB;
-        _renderPair();
+
+    if (side === 'left') {
+      // LEFT canvas = sideB. Record as pending partner for linking.
+      _pendingLeft = bboxId;
+    } else {
+      // RIGHT canvas = sideA.
+      if (_pendingLeft) {
+        ActiveSession.addManualLink(iA, bboxId, iB, _pendingLeft);
+        _pendingLeft = null;
+      } else {
+        // If this sideA bbox is already linked, resurface its partner as pending.
+        const linked = session.confirmedLinks.find(
+          l => (l.sideA === iA && l.bboxIdA === bboxId) ||
+               (l.sideB === iA && l.bboxIdB === bboxId)
+        );
+        if (linked) {
+          _pendingLeft = linked.sideA === iB ? linked.bboxIdA : linked.bboxIdB;
+        }
       }
     }
+  }
+
+  function _onCanvasMouseDown(side, e) {
+    if (e.button !== 0) return; // only primary button
+    const canvas = side === 'left' ? _leftCanvas : _rightCanvas;
+    const tr     = side === 'left' ? _leftTr     : _rightTr;
+    const img    = side === 'left' ? _leftImage  : _rightImage;
+    if (!tr || !img) return;
+    const session = ActiveSession.get();
+    if (!session) return;
+
+    const { cx, cy } = _canvasCoords(canvas, e);
+    const pt = tr.canvasToImage(cx, cy);
+    const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
+    const sideIdx = side === 'left' ? iB : iA;
+    const bboxes = session.sides[sideIdx].bboxes;
+
+    // Inside-image check: only allow drawing when click starts on the image
+    const onImage = pt.x >= 0 && pt.x <= img.naturalWidth && pt.y >= 0 && pt.y <= img.naturalHeight;
+
+    const hit = onImage ? _hitBbox(bboxes, pt.x, pt.y) : null;
+    if (hit) {
+      _drawState = { side, sideIdx, mode: 'click', bboxId: hit.id, ix0: pt.x, iy0: pt.y, moved: false };
+    } else if (onImage) {
+      const { ix, iy } = _clampImg(pt.x, pt.y, img);
+      _drawState = { side, sideIdx, mode: 'draw', ix0: ix, iy0: iy, ix1: ix, iy1: iy, moved: false };
+      e.preventDefault();
+    } else {
+      _drawState = null;
+    }
+  }
+
+  function _onCanvasMouseUp(side, e) {
+    if (!_drawState || _drawState.side !== side) { _drawState = null; return; }
+    const img = side === 'left' ? _leftImage : _rightImage;
+
+    if (_drawState.mode === 'click') {
+      if (!_drawState.moved) {
+        _handleBboxSelection(side, _drawState.sideIdx, _drawState.bboxId);
+      }
+    } else if (_drawState.mode === 'draw') {
+      if (_drawState.moved && img) {
+        const x1 = Math.max(0, Math.min(_drawState.ix0, _drawState.ix1));
+        const y1 = Math.max(0, Math.min(_drawState.iy0, _drawState.iy1));
+        const x2 = Math.min(img.naturalWidth,  Math.max(_drawState.ix0, _drawState.ix1));
+        const y2 = Math.min(img.naturalHeight, Math.max(_drawState.iy0, _drawState.iy1));
+        if (x2 - x1 >= MIN_NEW_BBOX_PX && y2 - y1 >= MIN_NEW_BBOX_PX) {
+          const classId = DEFAULT_NEW_CLASS_ID;
+          const newBbox = {
+            id: _newBboxId(),
+            classId,
+            className: CLASS_MAP[classId],
+            x1, y1, x2, y2,
+          };
+          ActiveSession.addBbox(_drawState.sideIdx, newBbox);
+          _editSelection = { sideIdx: _drawState.sideIdx, bboxId: newBbox.id };
+          // Drawing on LEFT pre-loads it as a link partner for convenience.
+          if (side === 'left') _pendingLeft = newBbox.id;
+        }
+      } else if (!_drawState.moved) {
+        // Simple click on empty area → clear both selections.
+        _pendingLeft = null;
+        _editSelection = null;
+      }
+    }
+    _drawState = null;
+    _renderPair();
   }
 
   function _onMouseMove(canvas, img, tr, e) {
     if (!tr || !img) return;
     const { cx, cy } = _canvasCoords(canvas, e);
-    const { y } = tr.canvasToImage(cx, cy);
-    _guideY = Math.max(0, Math.min(1, y / img.naturalHeight));
+    const pt = tr.canvasToImage(cx, cy);
+    _guideY = Math.max(0, Math.min(1, pt.y / img.naturalHeight));
+
+    // Update draw/click drag state
+    if (_drawState) {
+      const side = canvas === _leftCanvas ? 'left' : 'right';
+      if (_drawState.side === side) {
+        if (_drawState.mode === 'draw') {
+          const { ix, iy } = _clampImg(pt.x, pt.y, img);
+          _drawState.ix1 = ix;
+          _drawState.iy1 = iy;
+          const dx = ix - _drawState.ix0, dy = iy - _drawState.iy0;
+          if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+            _drawState.moved = true;
+          }
+        } else if (_drawState.mode === 'click') {
+          const dx = pt.x - _drawState.ix0, dy = pt.y - _drawState.iy0;
+          if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+            _drawState.moved = true; // cancel click-to-link if user drags
+          }
+        }
+      }
+    }
 
     // Re-render both canvases with updated guideline
-    _renderCanvas(_leftCanvas,  _leftImage,  _leftTr,  _lastBboxesLeft,  _lastHighlightsLeft,  _guideY);
-    _renderCanvas(_rightCanvas, _rightImage, _rightTr, _lastBboxesRight, _lastHighlightsRight, _guideY);
+    const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
+    const editSelLeftId  = _editSelection && _editSelection.sideIdx === iB ? _editSelection.bboxId : null;
+    const editSelRightId = _editSelection && _editSelection.sideIdx === iA ? _editSelection.bboxId : null;
+    const leftDraw  = (_drawState && _drawState.mode === 'draw' && _drawState.moved && _drawState.side === 'left')
+      ? { x1: _drawState.ix0, y1: _drawState.iy0, x2: _drawState.ix1, y2: _drawState.iy1 } : null;
+    const rightDraw = (_drawState && _drawState.mode === 'draw' && _drawState.moved && _drawState.side === 'right')
+      ? { x1: _drawState.ix0, y1: _drawState.iy0, x2: _drawState.ix1, y2: _drawState.iy1 } : null;
+    _renderCanvas(_leftCanvas,  _leftImage,  _leftTr,  _lastBboxesLeft,  _lastHighlightsLeft,  _guideY, editSelLeftId,  leftDraw);
+    _renderCanvas(_rightCanvas, _rightImage, _rightTr, _lastBboxesRight, _lastHighlightsRight, _guideY, editSelRightId, rightDraw);
 
     // Show magnifier for the hovered canvas
     const isLeft = canvas === _leftCanvas;
@@ -565,26 +720,35 @@ const DedupUI = (() => {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   // Stable bound handlers for add/removeEventListener
-  const _boundLeftClick  = (e) => _onLeftClick(e);
-  const _boundRightClick = (e) => _onRightClick(e);
+  const _boundLeftDown   = (e) => _onCanvasMouseDown('left',  e);
+  const _boundRightDown  = (e) => _onCanvasMouseDown('right', e);
+  const _boundWinUp      = (e) => {
+    // Route mouseup to whichever side is actively dragging (even if released off-canvas)
+    if (!_drawState) return;
+    _onCanvasMouseUp(_drawState.side, e);
+  };
   const _boundLeftMove   = (e) => _onMouseMove(_leftCanvas,  _leftImage,  _leftTr,  e);
   const _boundRightMove  = (e) => _onMouseMove(_rightCanvas, _rightImage, _rightTr, e);
   const _boundHidemag    = ()  => _hideMagnifier();
   const _boundWheel      = (e) => _onWheel(e);
+  const _boundContextMenu = (e) => e.preventDefault();
+  let _winUpAttached = false;
 
   function init(leftCanvas, rightCanvas, suggEl, linksEl) {
     // Detach from previous canvases if switching
     if (_leftCanvas && _listenersAttached) {
-      _leftCanvas.removeEventListener('click',      _boundLeftClick);
+      _leftCanvas.removeEventListener('mousedown',  _boundLeftDown);
       _leftCanvas.removeEventListener('mousemove',  _boundLeftMove);
       _leftCanvas.removeEventListener('mouseleave', _boundHidemag);
       _leftCanvas.removeEventListener('wheel',      _boundWheel);
+      _leftCanvas.removeEventListener('contextmenu', _boundContextMenu);
     }
     if (_rightCanvas && _listenersAttached) {
-      _rightCanvas.removeEventListener('click',      _boundRightClick);
-      _rightCanvas.removeEventListener('mousemove',  _boundRightMove);
+      _rightCanvas.removeEventListener('mousedown', _boundRightDown);
+      _rightCanvas.removeEventListener('mousemove', _boundRightMove);
       _rightCanvas.removeEventListener('mouseleave', _boundHidemag);
-      _rightCanvas.removeEventListener('wheel',      _boundWheel);
+      _rightCanvas.removeEventListener('wheel',     _boundWheel);
+      _rightCanvas.removeEventListener('contextmenu', _boundContextMenu);
     }
 
     _leftCanvas  = leftCanvas;
@@ -592,24 +756,82 @@ const DedupUI = (() => {
     _suggEl      = suggEl;
     _linksEl     = linksEl;
     _pendingLeft = null;
+    _editSelection = null;
+    _drawState   = null;
     _guideY      = null;
     _colorSeq    = 0;
     _linkColorMap.clear();
     _destroyed   = false;
 
-    _leftCanvas.addEventListener('click',      _boundLeftClick);
-    _rightCanvas.addEventListener('click',     _boundRightClick);
+    _leftCanvas.addEventListener('mousedown',  _boundLeftDown);
+    _rightCanvas.addEventListener('mousedown', _boundRightDown);
     _leftCanvas.addEventListener('mousemove',  _boundLeftMove);
     _rightCanvas.addEventListener('mousemove', _boundRightMove);
     _leftCanvas.addEventListener('mouseleave', _boundHidemag);
     _rightCanvas.addEventListener('mouseleave', _boundHidemag);
     _leftCanvas.addEventListener('wheel',      _boundWheel, { passive: false });
     _rightCanvas.addEventListener('wheel',     _boundWheel, { passive: false });
+    _leftCanvas.addEventListener('contextmenu',  _boundContextMenu);
+    _rightCanvas.addEventListener('contextmenu', _boundContextMenu);
+
+    if (!_winUpAttached) {
+      window.addEventListener('mouseup', _boundWinUp);
+      _winUpAttached = true;
+    }
     _listenersAttached = true;
+  }
+
+  // ── Edit actions (called from app.js keyboard + toolbar) ───────────────────
+
+  function changeSelectedClass(key) {
+    if (!_editSelection) return false;
+    const classId = parseInt(key, 10) - 1;
+    if (classId < 0 || classId > 3) return false;
+    ActiveSession.updateBbox(_editSelection.sideIdx, _editSelection.bboxId, {
+      classId,
+      className: CLASS_MAP[classId],
+    });
+    _renderPair();
+    return true;
+  }
+
+  function deleteSelected() {
+    if (!_editSelection) return false;
+    const { sideIdx, bboxId } = _editSelection;
+    ActiveSession.removeBbox(sideIdx, bboxId);
+    if (_pendingLeft === bboxId) _pendingLeft = null;
+    _editSelection = null;
+    _renderPair();
+    return true;
+  }
+
+  function getSelectedInfo() {
+    if (!_editSelection) return null;
+    const session = ActiveSession.get();
+    if (!session) return null;
+    const side = session.sides[_editSelection.sideIdx];
+    const bbox = side && side.bboxes.find(b => b.id === _editSelection.bboxId);
+    if (!bbox) return null;
+    return {
+      sideIdx: _editSelection.sideIdx,
+      sideLabel: TREE_SIDE_LABELS[_editSelection.sideIdx],
+      bboxId: bbox.id,
+      className: bbox.className,
+      classId: bbox.classId,
+    };
+  }
+
+  function getMagnifierEnabled() { return _magEnabled; }
+
+  function setMagnifierEnabled(v) {
+    _magEnabled = !!v;
+    if (!_magEnabled) _hideMagnifier();
   }
 
   function showPair(pairIndex, direction = null) {
     _pendingLeft = null;
+    _editSelection = null;
+    _drawState = null;
     const canvasesEl = document.querySelector('.dedup-canvases');
     if (direction && canvasesEl) {
       // slide-left for → (content exits left, new enters right)
@@ -640,7 +862,11 @@ const DedupUI = (() => {
   function getPairLabels() { return PAIR_LABELS; }
   function getCurrentPair() { return _pairIndex; }
 
-  return { init, showPair, refresh, destroy, getPairLabels, getCurrentPair };
+  return {
+    init, showPair, refresh, destroy, getPairLabels, getCurrentPair,
+    changeSelectedClass, deleteSelected, getSelectedInfo,
+    getMagnifierEnabled, setMagnifierEnabled,
+  };
 })();
 
 window.DedupUI = DedupUI;

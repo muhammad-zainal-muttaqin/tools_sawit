@@ -1,146 +1,81 @@
-# Tuning Guide - Accurate Counting 4 Sisi
+# Tuning Guide — Skor Deduplikasi Lintas-Sisi
 
-Panduan ini fokus ke tuning agar hasil counting unik lebih stabil sesuai kondisi lapangan.
+Panduan singkat untuk menyetel parameter scoring di `js/dedup-utils.js` agar saran tautan lintas sisi sesuai kondisi capture lapangan.
 
-## 1) Parameter Utama
+## 1) Parameter
 
-### A. Inferensi Model
+Parameter `suggestPairs(...)`:
 
-- `conf` (confidence threshold model)
-- `iou` (NMS IoU threshold model)
-- `imgsz` (image size inferensi)
+| Param | Default | Keterangan |
+|---|---|---|
+| `autoMin` | 0.75 | Skor ≥ ambang ini → kategori `auto` (saran kuat) |
+| `candidateMin` | 0.50 | Skor ≥ ambang ini → kategori `candidate` (saran lemah) |
+| `edgeDecay` | 0.30 | Fraksi lebar gambar di mana sinyal edge proximity meluruh ke 0 |
+| `vertTol` | 0.20 | Fraksi tinggi gambar yang ditoleransi sebagai perbedaan centroid Y |
 
-### B. Deduplikasi 4 Sisi
+Bobot sinyal (saat ini hard-coded):
 
-- `autoMergeMin`
-- `ambiguousMin`
-
-Kedua parameter dedup bisa diatur dari menu konfigurasi.
-
-### C. Tracking Video
-
-- `trackConf` / minimum confidence tracker
-- `nmsIou` / NMS IoU internal tracker
-- `maxDistPct` / jarak centroid maksimal antar frame
-- `maxAge` / umur track tanpa update
-- `minHits` / minimal kemunculan sebelum dihitung unik
-
-### D. Deduplikasi Bounding Box (Semua Mode)
-
-- `enabled` / aktifkan dedup box pasca-inferensi
-- `Post NMS IoU` (`iou`) default `0.45`
-- `Containment Threshold` (`containment`) default `0.82`
+```
+score = 0.40 × edge + 0.35 × vert + 0.15 × class + 0.10 × size
+```
 
 ## 2) Aturan Penting
 
-- `ambiguousMin` **harus selalu lebih kecil** dari `autoMergeMin`.
-- Jika dua nilai terlalu dekat, terlalu banyak pasangan masuk auto-merge atau review tanpa separasi yang sehat.
+- `candidateMin` **harus selalu lebih kecil** dari `autoMin`.
+- Kalau dua nilai terlalu dekat, hampir semua saran masuk auto-merge tanpa zona "candidate" — user kehilangan ruang untuk approve/tolak nuansa.
 
 ## 3) Default yang Direkomendasikan
 
-- `autoMergeMin = 0.82`
-- `ambiguousMin = 0.68`
-
-Default ini konservatif untuk menekan overcount.
+`autoMin = 0.75`, `candidateMin = 0.50`. Konservatif untuk anti-overcount; user tetap bisa menambahkan link manual untuk kasus skor rendah.
 
 ## 4) Gejala dan Cara Menyesuaikan
 
-### Kasus A: Overcount tinggi (buah sama dihitung dua kali)
+### Kasus A — Banyak saran auto yang sebenarnya bukan tandan sama
 
-Ubah:
-- naikkan `autoMergeMin` bertahap (`+0.01` sampai `+0.03`)
-- naikkan `ambiguousMin` bertahap (`+0.01` sampai `+0.03`)
-- bila perlu, naikkan `conf` inferensi sedikit
+- Naikkan `autoMin` (`+0.02` sampai `+0.05`).
+- Pastikan `vertTol` tidak terlalu longgar (tandan beda tinggi seharusnya tidak match).
 
-Efek:
-- auto-merge jadi lebih ketat,
-- lebih banyak kasus masuk review manual.
+### Kasus B — Tandan yang jelas-jelas sama tidak muncul sebagai saran
 
-### Kasus B: Undercount tinggi (buah berbeda malah digabung)
+- Turunkan `candidateMin` (`-0.05` sampai `-0.10`) supaya borderline ikut tampil sebagai saran.
+- Cek `edgeDecay` — kalau objek yang seharusnya match jauh dari tepi gambar, perbesar `edgeDecay` (mis. 0.40) sehingga sinyal edge tidak buru-buru meluruh ke 0.
 
-Ubah:
-- turunkan `autoMergeMin` bertahap (`-0.01` sampai `-0.03`)
-- turunkan `ambiguousMin` sedikit (`-0.01` sampai `-0.02`)
-- bila perlu, turunkan `conf` sedikit agar kandidat kecil tetap terdeteksi
+### Kasus C — Class mismatch sering jadi blocker
 
-Efek:
-- merge lebih toleran,
-- risiko overcount harus tetap dipantau.
+Class similarity hanya bobot 15%. Kalau klasifikasi label sering keliru ±1 grade (mis. B2 vs B3 di sisi berbeda), sinyal class-nya sudah memberi 0.6, dampak ke total skor moderat. Kalau perlu lebih toleran, edit bobot di `dedup-utils.js`.
 
-### Kasus C: Terlalu banyak pasangan ambigu
+### Kasus D — Geometry capture tidak konsisten (jarak/zoom berubah antar sisi)
 
-Ubah:
-- turunkan `ambiguousMin` sedikit agar kasus borderline langsung menjadi separate,
-- atau naikkan `autoMergeMin` jika ingin mempertahankan konservatif anti-overcount.
+- `size` similarity (10%) akan menurun. Kompensasi dengan `edgeDecay` lebih besar dan `vertTol` sedikit longgar.
+- Jangka panjang: standardisasi protokol capture.
 
-### Kasus D: Banyak box dobel di objek yang sama (geser tipis)
+## 5) Protokol Tuning
 
-Ubah:
-- turunkan `Post NMS IoU` sedikit (`-0.02` sampai `-0.08`) agar box overlap lebih agresif digabung,
-- turunkan `Containment Threshold` sedikit (`-0.02` sampai `-0.08`) bila pola box cenderung saling menimpa.
-
-Efek:
-- box ganda berkurang,
-- terlalu agresif bisa menghapus objek yang sebenarnya berbeda tapi berdekatan.
-
-## 5) Protokol Tuning yang Disarankan
-
-1. Siapkan set validasi kecil (mis. 20 pohon, masing-masing 4 sisi, ground truth count).
-2. Jalankan baseline dengan default.
-3. Catat:
-   - error overcount total,
-   - error undercount total,
-   - jumlah review ambigu per pohon.
-4. Ubah 1 parameter saja per iterasi.
-5. Re-run dan bandingkan metrik.
-6. Simpan konfigurasi terbaik per kondisi kebun/kamera.
-
-Untuk mode video, gunakan set validasi terpisah berbasis klip video dan ukur:
-1. error overcount,
-2. error undercount,
-3. stabilitas track (ID switch / kehilangan track),
-4. waktu proses per video.
+1. Siapkan validation set kecil (mis. 20 pohon dengan ground truth jumlah tandan unik).
+2. Jalankan baseline default, catat:
+   - jumlah tandan unik vs ground truth (over/under),
+   - berapa saran auto yang user tolak,
+   - berapa link manual yang user tambahkan (= recall miss algoritma).
+3. Ubah satu parameter per iterasi.
+4. Re-run, bandingkan metrik di atas.
+5. Simpan konfigurasi terbaik per kondisi kebun/kamera.
 
 ## 6) Praktik Capture untuk Meningkatkan Akurasi
 
-- jaga jarak kamera antar sisi konsisten,
-- rotasi sekitar 90 derajat per sisi,
-- hindari blur berat,
-- minimalkan perubahan exposure ekstrem antar sisi,
-- usahakan area kanopi objek tetap masuk frame.
+- Rotasi konsisten ≈ 90° antar sisi (Depan → Kanan → Belakang → Kiri).
+- Jaga jarak kamera ke pohon kira-kira sama di tiap sisi.
+- Hindari blur berat dan exposure ekstrem.
+- Pastikan tandan di tepi pohon masuk ke frame dua sisi yang berdekatan (itu yang bikin algoritma bisa match-nya).
 
 ## 7) Checklist Diagnostik Cepat
 
-Jika hasil aneh:
-- pastikan urutan sisi benar (Depan/Kanan/Belakang/Kiri),
-- cek API key valid dan inferensi sukses di keempat sisi,
-- cek jumlah deteksi mentah per sisi (terlalu rendah = masalah inferensi/capture),
-- cek apakah ambiguous review diselesaikan dengan benar,
-- cek `Ringkasan Kelas` untuk melihat apakah komposisi kelas masuk akal.
-- cek parameter `Deduplikasi Bounding Box` jika ada gejala box dobel.
+Jika hasil terlihat aneh:
 
-## 8) Strategi Operasional
+- Cek urutan sisi (`Depan/Kanan/Belakang/Kiri` = `_1/_2/_3/_4`).
+- Cek jumlah bbox per sisi sebelum dedup — anomali ekstrem biasanya berasal dari label awal yang buruk, bukan dari scoring.
+- Pastikan koreksi anotasi (Tab 1) sudah selesai sebelum jalankan saran dedup. Bbox baru / hapus / ubah kelas tidak akan ter-refleksi sampai user me-rerun saran (`R`).
+- Cek pasangan yang user tolak dan link manual yang ditambahkan — pola berulang menunjukkan parameter mana yang perlu diubah.
 
-- Untuk fase awal produksi:
-  - prioritaskan anti-overcount (konservatif),
-  - wajibkan review ambigu.
-- Untuk throughput tinggi:
-  - kalibrasi threshold agar review ambigu tidak terlalu banyak,
-  - tetap audit sampel harian untuk mencegah drift kualitas.
+## 8) Catatan
 
-## 9) Memilih Mode yang Tepat
-
-- Pakai `4 sisi` jika tujuan utama adalah hitung akurat per pohon.
-- Pakai `video` jika tujuan utama adalah throughput dan pemindaian area.
-
-Prinsip akurasi:
-- mode 4 sisi cenderung lebih presisi untuk satu pohon (multi-view terarah),
-- mode video cenderung lebih efisien untuk alur panjang, tapi sensitif pada gerak kamera dan occlusion.
-
-## 10) Standar Output ke User
-
-Agar user tidak bingung, interpretasi hasil di UI diseragamkan:
-- fokus ke jumlah unik,
-- tampilkan konteks deteksi mentah,
-- tampilkan confidence rata-rata,
-- tampilkan kelas dengan warna konsisten antar mode.
+App ini **tidak** lagi melakukan inferensi YOLO atau tracking video. Parameter terkait `conf`, `iou`, `imgsz`, `trackConf`, `maxAge`, dsb. yang ada di versi sebelumnya sudah dihapus. Untuk mengubah label awal, lakukan inferensi di luar app (mis. CLI Ultralytics) lalu muat folder dataset hasilnya ke app ini untuk koreksi & dedup.

@@ -1,9 +1,29 @@
 'use strict';
 
-const TREE_SIDE_LABELS = ['Depan', 'Kanan', 'Belakang', 'Kiri'];
+// Dynamic side labels + adjacency — regenerated per tree based on number of photos.
+// For N=4 use compass-style Indonesian labels; for other N use generic "Sisi i".
+let TREE_SIDE_LABELS = ['Depan', 'Kanan', 'Belakang', 'Kiri'];
 
 // Adjacent pair definitions: [sideA, sideB] clockwise (right edge of A meets left edge of B)
-const ADJACENT_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
+let ADJACENT_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
+
+function generateSideLabels(n) {
+  if (n === 4) return ['Depan', 'Kanan', 'Belakang', 'Kiri'];
+  return Array.from({ length: n }, (_, i) => `Sisi ${i + 1}`);
+}
+
+function generateAdjacentPairs(n) {
+  if (n < 2) return [];
+  if (n === 2) return [[0, 1]]; // single pair, no wraparound
+  return Array.from({ length: n }, (_, i) => [i, (i + 1) % n]);
+}
+
+function _applySideCount(n) {
+  TREE_SIDE_LABELS = generateSideLabels(n);
+  ADJACENT_PAIRS   = generateAdjacentPairs(n);
+  window.TREE_SIDE_LABELS = TREE_SIDE_LABELS;
+  window.ADJACENT_PAIRS   = ADJACENT_PAIRS;
+}
 
 // ─── Active Session ───────────────────────────────────────────────────────────
 
@@ -45,7 +65,10 @@ const ActiveSession = (() => {
     }
     _linkSeq = 0;
 
-    const sides = [0, 1, 2, 3].map(_createSide);
+    const n = Math.max(2, (datasetTree.sides || []).length || 4);
+    _applySideCount(n);
+
+    const sides = Array.from({ length: n }, (_, i) => _createSide(i));
     await Promise.all(datasetTree.sides.map(async (dSide, i) => {
       const side = sides[i];
       if (!dSide || !dSide.imageFile) return;
@@ -64,6 +87,7 @@ const ActiveSession = (() => {
 
     _state = {
       treeName: datasetTree.name,
+      treeId: '',  // set externally via setTreeId() after config is ready
       split: datasetTree.split,
       sides,
       suggestedLinks: [],
@@ -87,8 +111,12 @@ const ActiveSession = (() => {
   function removeBbox(sideIndex, id) {
     const side = _state.sides[sideIndex];
     side.bboxes = side.bboxes.filter(b => b.id !== id);
-    _state.suggestedLinks = _state.suggestedLinks.filter(l => l.bboxIdA !== id && l.bboxIdB !== id);
-    _state.confirmedLinks = _state.confirmedLinks.filter(l => l.bboxIdA !== id && l.bboxIdB !== id);
+    _state.suggestedLinks = _state.suggestedLinks.filter(l =>
+      !((l.sideA === sideIndex && l.bboxIdA === id) || (l.sideB === sideIndex && l.bboxIdB === id))
+    );
+    _state.confirmedLinks = _state.confirmedLinks.filter(l =>
+      !((l.sideA === sideIndex && l.bboxIdA === id) || (l.sideB === sideIndex && l.bboxIdB === id))
+    );
     _markDirty();
   }
 
@@ -115,7 +143,7 @@ const ActiveSession = (() => {
       );
       for (const p of pairs) {
         const alreadyConfirmed = _state.confirmedLinks.some(
-          l => l.bboxIdA === p.bboxIdA && l.bboxIdB === p.bboxIdB
+          l => l.sideA === iA && l.bboxIdA === p.bboxIdA && l.sideB === iB && l.bboxIdB === p.bboxIdB
         );
         if (alreadyConfirmed) continue;
         _state.suggestedLinks.push({
@@ -132,37 +160,57 @@ const ActiveSession = (() => {
     const idx = _state.suggestedLinks.findIndex(l => l.linkId === linkId);
     if (idx === -1) return;
     const link = _state.suggestedLinks.splice(idx, 1)[0];
-    _state.confirmedLinks.push({
-      linkId: 'lnk-' + (_linkSeq++),
-      sideA: link.sideA, bboxIdA: link.bboxIdA,
-      sideB: link.sideB, bboxIdB: link.bboxIdB,
-    });
-    _markDirty();
+    addManualLink(link.sideA, link.bboxIdA, link.sideB, link.bboxIdB);
   }
 
   function confirmAllAuto() {
     const autos = _state.suggestedLinks.filter(l => l.category === 'auto');
     for (const l of autos) {
-      _state.confirmedLinks.push({
-        linkId: 'lnk-' + (_linkSeq++),
-        sideA: l.sideA, bboxIdA: l.bboxIdA,
-        sideB: l.sideB, bboxIdB: l.bboxIdB,
-      });
+      addManualLink(l.sideA, l.bboxIdA, l.sideB, l.bboxIdB);
     }
     _state.suggestedLinks = _state.suggestedLinks.filter(l => l.category !== 'auto');
-    _markDirty();
   }
 
   function rejectLink(linkId) {
     _state.suggestedLinks = _state.suggestedLinks.filter(l => l.linkId !== linkId);
   }
 
+  function _linkUsesBox(link, sideIdx, bboxId) {
+    return (link.sideA === sideIdx && link.bboxIdA === bboxId) ||
+           (link.sideB === sideIdx && link.bboxIdB === bboxId);
+  }
+
+  function _isSameSidePair(link, sideA, sideB) {
+    return (link.sideA === sideA && link.sideB === sideB) ||
+           (link.sideA === sideB && link.sideB === sideA);
+  }
+
+  function _isSameLink(link, sideA, bboxIdA, sideB, bboxIdB) {
+    return (link.sideA === sideA && link.bboxIdA === bboxIdA && link.sideB === sideB && link.bboxIdB === bboxIdB) ||
+           (link.sideA === sideB && link.bboxIdA === bboxIdB && link.sideB === sideA && link.bboxIdB === bboxIdA);
+  }
+
   function addManualLink(sideA, bboxIdA, sideB, bboxIdB) {
-    const exists = _state.confirmedLinks.some(
-      l => (l.bboxIdA === bboxIdA && l.bboxIdB === bboxIdB) ||
-           (l.bboxIdA === bboxIdB && l.bboxIdB === bboxIdA)
+    const existing = _state.confirmedLinks.find(l => _isSameLink(l, sideA, bboxIdA, sideB, bboxIdB));
+    if (existing) return existing;
+
+    // Manual linking should be override-able within the active side pair,
+    // but must not remove links from other adjacent pairs.
+    _state.confirmedLinks = _state.confirmedLinks.filter(l =>
+      !(_isSameSidePair(l, sideA, sideB) && (
+        _linkUsesBox(l, sideA, bboxIdA) ||
+        _linkUsesBox(l, sideB, bboxIdB)
+      ))
     );
-    if (exists) return null;
+
+    // Drop stale suggestions touching either endpoint in this pair only.
+    _state.suggestedLinks = _state.suggestedLinks.filter(l =>
+      !(_isSameSidePair(l, sideA, sideB) && (
+        _linkUsesBox(l, sideA, bboxIdA) ||
+        _linkUsesBox(l, sideB, bboxIdB)
+      ))
+    );
+
     const link = {
       linkId: 'lnk-' + (_linkSeq++),
       sideA, bboxIdA, sideB, bboxIdB,
@@ -178,6 +226,9 @@ const ActiveSession = (() => {
   }
 
   function isDirty() { return _state ? _state.dirty : false; }
+
+  function setTreeId(id) { if (_state) _state.treeId = id; }
+  function getTreeId() { return _state ? _state.treeId : ''; }
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
@@ -221,11 +272,15 @@ const ActiveSession = (() => {
     addBbox, removeBbox, updateBbox,
     runSuggestions, confirmLink, confirmAllAuto,
     rejectLink, addManualLink, removeConfirmedLink,
-    isDirty, toJSON,
+    isDirty, toJSON, setTreeId, getTreeId,
     get ADJACENT_PAIRS() { return ADJACENT_PAIRS; },
+    get TREE_SIDE_LABELS() { return TREE_SIDE_LABELS; },
+    get sideCount() { return _state ? _state.sides.length : TREE_SIDE_LABELS.length; },
   };
 })();
 
 window.ActiveSession = ActiveSession;
 window.TREE_SIDE_LABELS = TREE_SIDE_LABELS;
 window.ADJACENT_PAIRS = ADJACENT_PAIRS;
+window.generateSideLabels = generateSideLabels;
+window.generateAdjacentPairs = generateAdjacentPairs;

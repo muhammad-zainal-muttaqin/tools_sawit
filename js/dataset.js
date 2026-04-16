@@ -5,10 +5,12 @@
  * and group files into tree objects for navigation.
  *
  * Expected folder structure:
- *   {root}/images/{split}/{stem}_{1-4}.jpg
- *   {root}/labels/{split}/{stem}_{1-4}.txt
+ *   {root}/images/{split}/{stem}_{N}.jpg
+ *   {root}/labels/{split}/{stem}_{N}.txt
  *
- * Where stem = e.g. DAMIMAS_A21B_0004, and _{1-4} is the side number.
+ * Where stem = e.g. DAMIMAS_A21B_0004, and _{N} is the side number (1..99).
+ * Number of sides per tree is derived from the max side number observed
+ * for that tree (so 4-sided and 8-sided trees can coexist in one dataset).
  */
 const DatasetManager = (() => {
   let _trees = [];
@@ -22,11 +24,11 @@ const DatasetManager = (() => {
   }
 
   /**
-   * Extract side number (1-4) from stem suffix (_1, _2, _3, _4).
+   * Extract side number (1-99) from stem suffix (_1, _2, …).
    * Returns null if no valid suffix found.
    */
   function _sideNum(stem) {
-    const m = stem.match(/_([1-4])$/);
+    const m = stem.match(/_([1-9]\d?)$/);
     return m ? parseInt(m[1], 10) : null;
   }
 
@@ -34,7 +36,7 @@ const DatasetManager = (() => {
    * Strip the side suffix from a stem: DAMIMAS_A21B_0004_1 → DAMIMAS_A21B_0004
    */
   function _treeName(stem) {
-    return stem.replace(/_[1-4]$/, '');
+    return stem.replace(/_[1-9]\d?$/, '');
   }
 
   /**
@@ -97,14 +99,21 @@ const DatasetManager = (() => {
       sidesMap.set(sNum, entry);
     }
 
-    // Convert to sorted array of tree objects
+    // Convert to sorted array of tree objects.
+    // Side count per tree is the max side number observed in its filenames.
     _trees = Array.from(treeMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, { split, sides: sidesMap }]) => ({
-        name,
-        split,
-        sides: [1, 2, 3, 4].map(n => sidesMap.get(n) || { imageFile: null, labelFile: null }),
-      }));
+      .map(([name, { split, sides: sidesMap }]) => {
+        const maxSide = sidesMap.size ? Math.max(...sidesMap.keys()) : 4;
+        const n = Math.max(2, maxSide);
+        return {
+          name,
+          split,
+          sides: Array.from({ length: n }, (_, i) =>
+            sidesMap.get(i + 1) || { imageFile: null, labelFile: null }
+          ),
+        };
+      });
 
     _currentIndex = 0;
     return _trees;
