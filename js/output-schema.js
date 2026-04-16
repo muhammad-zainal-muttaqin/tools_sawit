@@ -20,6 +20,55 @@ const OutputSchema = (() => {
     return `${sideIndex}:${bboxId}`;
   }
 
+  function _pairKey(sideA, sideB) {
+    return sideA < sideB ? `${sideA}:${sideB}` : `${sideB}:${sideA}`;
+  }
+
+  function _buildAdjacentPairs(totalSides) {
+    if (totalSides < 2) return [];
+    if (totalSides === 2) return [[0, 1]];
+    return Array.from({ length: totalSides }, (_, i) => [i, (i + 1) % totalSides]);
+  }
+
+  function _buildAdjacentPairSet(totalSides) {
+    const set = new Set();
+    for (const [sideA, sideB] of _buildAdjacentPairs(totalSides)) {
+      set.add(_pairKey(sideA, sideB));
+    }
+    return set;
+  }
+
+  function _buildAdjacentPairMap(totalSides) {
+    const map = new Map();
+    for (const [sideA, sideB] of _buildAdjacentPairs(totalSides)) {
+      map.set(_pairKey(sideA, sideB), [sideA, sideB]);
+    }
+    return map;
+  }
+
+  function _isAdjacentPair(sideA, sideB, pairSet) {
+    return pairSet.has(_pairKey(sideA, sideB));
+  }
+
+  function _orientToAdjacentPair(sideA, bboxIdA, sideB, bboxIdB, pairMap) {
+    const oriented = pairMap.get(_pairKey(sideA, sideB));
+    if (!oriented) return { sideA, bboxIdA, sideB, bboxIdB };
+
+    if (sideA === oriented[0] && sideB === oriented[1]) {
+      return { sideA, bboxIdA, sideB, bboxIdB };
+    }
+    if (sideA === oriented[1] && sideB === oriented[0]) {
+      return { sideA: sideB, bboxIdA: bboxIdB, sideB: sideA, bboxIdB: bboxIdA };
+    }
+    return { sideA, bboxIdA, sideB, bboxIdB };
+  }
+
+  function _linkDedupKey(sideA, bboxIdA, sideB, bboxIdB) {
+    const left = _bboxKey(sideA, bboxIdA);
+    const right = _bboxKey(sideB, bboxIdB);
+    return left < right ? `${left}|${right}` : `${right}|${left}`;
+  }
+
   /**
    * Convert pixel-coord bbox to YOLO normalized format.
    */
@@ -73,6 +122,8 @@ const OutputSchema = (() => {
   function generate(session, result, treeId, projectCfg, datasetTree) {
     const totalSides = session.sides.length;
     const bboxIndexMap = _buildBboxIndexMap(session);
+    const adjacentPairSet = _buildAdjacentPairSet(totalSides);
+    const adjacentPairMap = _buildAdjacentPairMap(totalSides);
 
     // ── Images section ─────────────────────────────────────────────────────
     const images = {};
@@ -150,6 +201,35 @@ const OutputSchema = (() => {
       }
     }
 
+    // Persist exact confirmed links (adjacent-only) using box-index-stable IDs.
+    const persistedConfirmedLinks = [];
+    const persistedSeen = new Set();
+    for (const link of (session.confirmedLinks || [])) {
+      const infoA = bboxIndexMap.get(_bboxKey(link.sideA, link.bboxIdA));
+      const infoB = bboxIndexMap.get(_bboxKey(link.sideB, link.bboxIdB));
+      if (!infoA || !infoB) continue;
+      if (!_isAdjacentPair(infoA.sideIndex, infoB.sideIndex, adjacentPairSet)) continue;
+
+      const oriented = _orientToAdjacentPair(
+        infoA.sideIndex,
+        'b' + infoA.boxIndex,
+        infoB.sideIndex,
+        'b' + infoB.boxIndex,
+        adjacentPairMap
+      );
+      const dedupKey = _linkDedupKey(oriented.sideA, oriented.bboxIdA, oriented.sideB, oriented.bboxIdB);
+      if (persistedSeen.has(dedupKey)) continue;
+      persistedSeen.add(dedupKey);
+
+      persistedConfirmedLinks.push({
+        linkId: typeof link.linkId === 'string' ? link.linkId : 'L' + persistedConfirmedLinks.length,
+        sideA: oriented.sideA,
+        bboxIdA: oriented.bboxIdA,
+        sideB: oriented.sideB,
+        bboxIdB: oriented.bboxIdB,
+      });
+    }
+
     // ── Summary section ────────────────────────────────────────────────────
     const summary = {
       total_unique_bunches: result ? result.uniqueCount : 0,
@@ -179,6 +259,7 @@ const OutputSchema = (() => {
       },
       images,
       bunches,
+      _confirmedLinks: persistedConfirmedLinks,
       summary,
     };
   }
@@ -218,22 +299,65 @@ const OutputSchema = (() => {
       })),
     }));
 
+    const sideBboxes = new Map(
+      sides.map(side => [side.sideIndex, new Set(side.bboxes.map(b => b.id))])
+    );
+    const adjacentPairSet = _buildAdjacentPairSet(sides.length);
+    const adjacentPairMap = _buildAdjacentPairMap(sides.length);
+
     const confirmedLinks = [];
+    const seenLinks = new Set();
     let linkSeq = 0;
-    for (const bunch of (outputJson.bunches || [])) {
-      const apps = bunch.appearances || [];
-      if (apps.length < 2) continue;
-      // Chain consecutive appearances — same union-find cluster as any topology.
-      for (let i = 0; i < apps.length - 1; i++) {
-        const a = apps[i];
-        const b = apps[i + 1];
-        confirmedLinks.push({
-          linkId: 'L' + (linkSeq++),
-          sideA: a.side_index,
-          bboxIdA: 'b' + a.box_index,
-          sideB: b.side_index,
-          bboxIdB: 'b' + b.box_index,
-        });
+
+    function _pushConfirmedLink(sideA, bboxIdA, sideB, bboxIdB) {
+      if (!_isAdjacentPair(sideA, sideB, adjacentPairSet)) return;
+      if (!sideBboxes.get(sideA) || !sideBboxes.get(sideA).has(bboxIdA)) return;
+      if (!sideBboxes.get(sideB) || !sideBboxes.get(sideB).has(bboxIdB)) return;
+
+      const oriented = _orientToAdjacentPair(sideA, bboxIdA, sideB, bboxIdB, adjacentPairMap);
+      const dedupKey = _linkDedupKey(oriented.sideA, oriented.bboxIdA, oriented.sideB, oriented.bboxIdB);
+      if (seenLinks.has(dedupKey)) return;
+      seenLinks.add(dedupKey);
+
+      confirmedLinks.push({
+        linkId: 'L' + (linkSeq++),
+        sideA: oriented.sideA,
+        bboxIdA: oriented.bboxIdA,
+        sideB: oriented.sideB,
+        bboxIdB: oriented.bboxIdB,
+      });
+    }
+
+    if (Array.isArray(outputJson._confirmedLinks) && outputJson._confirmedLinks.length > 0) {
+      for (const link of outputJson._confirmedLinks) {
+        if (!link) continue;
+        const sideA = Number(link.sideA);
+        const sideB = Number(link.sideB);
+        if (!Number.isInteger(sideA) || !Number.isInteger(sideB)) continue;
+        if (typeof link.bboxIdA !== 'string' || typeof link.bboxIdB !== 'string') continue;
+        _pushConfirmedLink(sideA, link.bboxIdA, sideB, link.bboxIdB);
+      }
+    } else {
+      for (const bunch of (outputJson.bunches || [])) {
+        const apps = (bunch.appearances || [])
+          .map(app => ({
+            sideIndex: Number(app.side_index),
+            boxIndex: Number(app.box_index),
+          }))
+          .filter(app => Number.isInteger(app.sideIndex) && Number.isInteger(app.boxIndex))
+          .sort((a, b) => {
+            if (a.sideIndex !== b.sideIndex) return a.sideIndex - b.sideIndex;
+            return a.boxIndex - b.boxIndex;
+          });
+
+        if (apps.length < 2) continue;
+        for (let i = 0; i < apps.length - 1; i++) {
+          for (let j = i + 1; j < apps.length; j++) {
+            const a = apps[i];
+            const b = apps[j];
+            _pushConfirmedLink(a.sideIndex, 'b' + a.boxIndex, b.sideIndex, 'b' + b.boxIndex);
+          }
+        }
       }
     }
 

@@ -164,11 +164,23 @@ const ActiveSession = (() => {
   }
 
   function confirmAllAuto() {
-    const autos = _state.suggestedLinks.filter(l => l.category === 'auto');
+    if (!_state) return;
+    for (const [sideA, sideB] of ADJACENT_PAIRS) {
+      confirmAllAutoForPair(sideA, sideB);
+    }
+  }
+
+  function confirmAllAutoForPair(sideA, sideB) {
+    if (!_state) return;
+    const autos = _state.suggestedLinks.filter(
+      l => l.category === 'auto' && _isSameSidePair(l, sideA, sideB)
+    );
     for (const l of autos) {
       addManualLink(l.sideA, l.bboxIdA, l.sideB, l.bboxIdB);
     }
-    _state.suggestedLinks = _state.suggestedLinks.filter(l => l.category !== 'auto');
+    _state.suggestedLinks = _state.suggestedLinks.filter(
+      l => !(l.category === 'auto' && _isSameSidePair(l, sideA, sideB))
+    );
   }
 
   function rejectLink(linkId) {
@@ -178,6 +190,42 @@ const ActiveSession = (() => {
   function _linkUsesBox(link, sideIdx, bboxId) {
     return (link.sideA === sideIdx && link.bboxIdA === bboxId) ||
            (link.sideB === sideIdx && link.bboxIdB === bboxId);
+  }
+
+  function _pairKey(sideA, sideB) {
+    return sideA < sideB ? `${sideA}:${sideB}` : `${sideB}:${sideA}`;
+  }
+
+  function _bboxNodeKey(sideIdx, bboxId) {
+    return `${sideIdx}:${bboxId}`;
+  }
+
+  function _endpointDedupKey(sideA, bboxIdA, sideB, bboxIdB) {
+    const a = _bboxNodeKey(sideA, bboxIdA);
+    const b = _bboxNodeKey(sideB, bboxIdB);
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
+  }
+
+  function _buildAdjacentPairSet() {
+    const set = new Set();
+    for (const [sideA, sideB] of ADJACENT_PAIRS) {
+      set.add(_pairKey(sideA, sideB));
+    }
+    return set;
+  }
+
+  function _buildAdjacentPairMap() {
+    const map = new Map();
+    for (const [sideA, sideB] of ADJACENT_PAIRS) {
+      map.set(_pairKey(sideA, sideB), [sideA, sideB]);
+    }
+    return map;
+  }
+
+  function _isAdjacentSidePair(sideA, sideB) {
+    return ADJACENT_PAIRS.some(
+      ([a, b]) => (a === sideA && b === sideB) || (a === sideB && b === sideA)
+    );
   }
 
   function _isSameSidePair(link, sideA, sideB) {
@@ -190,7 +238,22 @@ const ActiveSession = (() => {
            (link.sideA === sideB && link.bboxIdA === bboxIdB && link.sideB === sideA && link.bboxIdB === bboxIdA);
   }
 
+  function _orientToAdjacentPair(sideA, bboxIdA, sideB, bboxIdB, pairMap) {
+    const oriented = pairMap.get(_pairKey(sideA, sideB));
+    if (!oriented) return { sideA, bboxIdA, sideB, bboxIdB };
+
+    if (sideA === oriented[0] && sideB === oriented[1]) {
+      return { sideA, bboxIdA, sideB, bboxIdB };
+    }
+    if (sideA === oriented[1] && sideB === oriented[0]) {
+      return { sideA: sideB, bboxIdA: bboxIdB, sideB: sideA, bboxIdB: bboxIdA };
+    }
+    return { sideA, bboxIdA, sideB, bboxIdB };
+  }
+
   function addManualLink(sideA, bboxIdA, sideB, bboxIdB) {
+    if (!_isAdjacentSidePair(sideA, sideB)) return null;
+
     const existing = _state.confirmedLinks.find(l => _isSameLink(l, sideA, bboxIdA, sideB, bboxIdB));
     if (existing) return existing;
 
@@ -231,6 +294,179 @@ const ActiveSession = (() => {
   function setTreeId(id) { if (_state) _state.treeId = id; }
   function getTreeId() { return _state ? _state.treeId : ''; }
 
+  function _validNodeSet() {
+    const set = new Set();
+    if (!_state) return set;
+    for (const side of _state.sides) {
+      for (const bbox of side.bboxes) {
+        set.add(_bboxNodeKey(side.sideIndex, bbox.id));
+      }
+    }
+    return set;
+  }
+
+  function _normalizeRawLink(raw) {
+    if (!raw) return null;
+    const sideA = Number(raw.sideA);
+    const sideB = Number(raw.sideB);
+    const bboxIdA = typeof raw.bboxIdA === 'string' ? raw.bboxIdA : null;
+    const bboxIdB = typeof raw.bboxIdB === 'string' ? raw.bboxIdB : null;
+    if (!Number.isInteger(sideA) || !Number.isInteger(sideB)) return null;
+    if (!bboxIdA || !bboxIdB) return null;
+    if (sideA === sideB) return null;
+    return { sideA, bboxIdA, sideB, bboxIdB };
+  }
+
+  function _sanitizeConfirmedLinks(rawLinks) {
+    if (!_state || !Array.isArray(rawLinks) || rawLinks.length === 0) return [];
+
+    const validNodes = _validNodeSet();
+    const pairSet = _buildAdjacentPairSet();
+    const pairMap = _buildAdjacentPairMap();
+    const links = [];
+    const nodeKeys = new Set();
+    const nodeMeta = new Map();
+
+    for (const raw of rawLinks) {
+      const link = _normalizeRawLink(raw);
+      if (!link) continue;
+
+      const nodeA = _bboxNodeKey(link.sideA, link.bboxIdA);
+      const nodeB = _bboxNodeKey(link.sideB, link.bboxIdB);
+      if (!validNodes.has(nodeA) || !validNodes.has(nodeB)) continue;
+
+      links.push({ ...link, nodeA, nodeB });
+      nodeKeys.add(nodeA);
+      nodeKeys.add(nodeB);
+      nodeMeta.set(nodeA, { sideIndex: link.sideA, bboxId: link.bboxIdA });
+      nodeMeta.set(nodeB, { sideIndex: link.sideB, bboxId: link.bboxIdB });
+    }
+
+    if (links.length === 0) return [];
+
+    const uf = createUnionFind(Array.from(nodeKeys));
+    for (const link of links) {
+      uf.union(link.nodeA, link.nodeB);
+    }
+
+    const clusterLinks = new Map();
+    const clusterNodes = new Map();
+    for (const link of links) {
+      const root = uf.find(link.nodeA);
+      if (!clusterLinks.has(root)) clusterLinks.set(root, []);
+      if (!clusterNodes.has(root)) clusterNodes.set(root, new Set());
+      clusterLinks.get(root).push(link);
+      clusterNodes.get(root).add(link.nodeA);
+      clusterNodes.get(root).add(link.nodeB);
+    }
+
+    const out = [];
+    const seen = new Set();
+
+    function pushLink(sideA, bboxIdA, sideB, bboxIdB) {
+      if (!pairSet.has(_pairKey(sideA, sideB))) return;
+      const oriented = _orientToAdjacentPair(sideA, bboxIdA, sideB, bboxIdB, pairMap);
+      const dedupKey = _endpointDedupKey(
+        oriented.sideA,
+        oriented.bboxIdA,
+        oriented.sideB,
+        oriented.bboxIdB
+      );
+      if (seen.has(dedupKey)) return;
+      seen.add(dedupKey);
+      out.push({
+        sideA: oriented.sideA,
+        bboxIdA: oriented.bboxIdA,
+        sideB: oriented.sideB,
+        bboxIdB: oriented.bboxIdB,
+      });
+    }
+
+    for (const [root, compLinks] of clusterLinks.entries()) {
+      for (const link of compLinks) {
+        if (pairSet.has(_pairKey(link.sideA, link.sideB))) {
+          pushLink(link.sideA, link.bboxIdA, link.sideB, link.bboxIdB);
+        }
+      }
+
+      const hasNonAdjacent = compLinks.some(link => !pairSet.has(_pairKey(link.sideA, link.sideB)));
+      if (!hasNonAdjacent) continue;
+
+      const sideToNodes = new Map();
+      for (const nodeKey of clusterNodes.get(root)) {
+        const meta = nodeMeta.get(nodeKey);
+        if (!meta) continue;
+        if (!sideToNodes.has(meta.sideIndex)) sideToNodes.set(meta.sideIndex, []);
+        sideToNodes.get(meta.sideIndex).push(meta);
+      }
+
+      const singleNodePerSide = Array.from(sideToNodes.values()).every(nodes => nodes.length === 1);
+      if (!singleNodePerSide) continue;
+
+      for (const [sideA, sideB] of ADJACENT_PAIRS) {
+        const nodeA = sideToNodes.get(sideA);
+        const nodeB = sideToNodes.get(sideB);
+        if (!nodeA || !nodeB) continue;
+        pushLink(sideA, nodeA[0].bboxId, sideB, nodeB[0].bboxId);
+      }
+    }
+
+    return out.map((l, idx) => ({
+      linkId: 'lnk-' + idx,
+      sideA: l.sideA,
+      bboxIdA: l.bboxIdA,
+      sideB: l.sideB,
+      bboxIdB: l.bboxIdB,
+    }));
+  }
+
+  function _sanitizeSuggestedLinks(rawLinks, confirmedLinks) {
+    if (!_state || !Array.isArray(rawLinks) || rawLinks.length === 0) return [];
+
+    const validNodes = _validNodeSet();
+    const pairSet = _buildAdjacentPairSet();
+    const pairMap = _buildAdjacentPairMap();
+    const confirmedSet = new Set(
+      (confirmedLinks || []).map(l => _endpointDedupKey(l.sideA, l.bboxIdA, l.sideB, l.bboxIdB))
+    );
+    const seen = new Set();
+    const out = [];
+
+    for (const raw of rawLinks) {
+      const link = _normalizeRawLink(raw);
+      if (!link) continue;
+
+      const nodeA = _bboxNodeKey(link.sideA, link.bboxIdA);
+      const nodeB = _bboxNodeKey(link.sideB, link.bboxIdB);
+      if (!validNodes.has(nodeA) || !validNodes.has(nodeB)) continue;
+      if (!pairSet.has(_pairKey(link.sideA, link.sideB))) continue;
+
+      const oriented = _orientToAdjacentPair(link.sideA, link.bboxIdA, link.sideB, link.bboxIdB, pairMap);
+      const dedupKey = _endpointDedupKey(
+        oriented.sideA,
+        oriented.bboxIdA,
+        oriented.sideB,
+        oriented.bboxIdB
+      );
+      if (confirmedSet.has(dedupKey) || seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      const score = Number(raw.score);
+      out.push({
+        linkId: 'sug-' + out.length,
+        sideA: oriented.sideA,
+        bboxIdA: oriented.bboxIdA,
+        sideB: oriented.sideB,
+        bboxIdB: oriented.bboxIdB,
+        score: Number.isFinite(score) ? score : 0,
+        category: raw.category === 'auto' ? 'auto' : 'candidate',
+        signals: raw.signals,
+      });
+    }
+
+    return out;
+  }
+
   // ── Serialization ──────────────────────────────────────────────────────────
 
   function toJSON() {
@@ -262,8 +498,13 @@ const ActiveSession = (() => {
       if (!side.imageWidth && ss.imageWidth) side.imageWidth = ss.imageWidth;
       if (!side.imageHeight && ss.imageHeight) side.imageHeight = ss.imageHeight;
     }
-    _state.suggestedLinks = saved.suggestedLinks || [];
-    _state.confirmedLinks = saved.confirmedLinks || [];
+
+    const sanitizedConfirmed = _sanitizeConfirmedLinks(saved.confirmedLinks || []);
+    const sanitizedSuggested = _sanitizeSuggestedLinks(saved.suggestedLinks || [], sanitizedConfirmed);
+
+    _state.confirmedLinks = sanitizedConfirmed;
+    _state.suggestedLinks = sanitizedSuggested;
+    _linkSeq = _state.confirmedLinks.length + _state.suggestedLinks.length;
     _state.dirty = false;
     return _state;
   }
@@ -271,7 +512,7 @@ const ActiveSession = (() => {
   return {
     loadTree, fromJSON, get,
     addBbox, removeBbox, updateBbox,
-    runSuggestions, confirmLink, confirmAllAuto,
+    runSuggestions, confirmLink, confirmAllAuto, confirmAllAutoForPair,
     rejectLink, addManualLink, removeConfirmedLink,
     isDirty, markClean, toJSON, setTreeId, getTreeId,
     get ADJACENT_PAIRS() { return ADJACENT_PAIRS; },

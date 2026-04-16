@@ -15,6 +15,7 @@ const DedupUI = (() => {
     '#22c55e', '#3b82f6', '#f59e0b', '#ec4899',
     '#06b6d4', '#a855f7', '#ef4444', '#84cc16',
   ];
+  const CROSS_PAIR_COLOR = '#94a3b8';
 
   let _leftCanvas, _rightCanvas, _suggEl, _linksEl;
   let _pairIndex = 0;
@@ -121,6 +122,7 @@ const DedupUI = (() => {
     const magScale = _magZoom * magDpr;
     bboxes.forEach(b => {
       const hi = highlights.get(b.id);
+      const isCrossPair = !!(hi && hi.crossPair && b.id !== _pendingLeft);
       let color = CanvasRenderer.getClassColor(b.className);
       if (hi) color = hi.color;
       if (b.id === _pendingLeft) color = '#fff';
@@ -132,18 +134,20 @@ const DedupUI = (() => {
       const mw  = mx2 - mx1, mh = my2 - my1;
 
       if (hi || b.id === _pendingLeft) {
-        ctx.fillStyle = color + '30';
+        ctx.fillStyle = color + (isCrossPair ? '1f' : '30');
         ctx.fillRect(mx1, my1, mw, mh);
       }
       ctx.strokeStyle = color;
-      ctx.lineWidth = hi ? 3 * magDpr : 1.5 * magDpr;
+      ctx.lineWidth = hi ? (isCrossPair ? 2 * magDpr : 3 * magDpr) : 1.5 * magDpr;
+      if (isCrossPair) ctx.setLineDash([6 * magDpr, 4 * magDpr]);
       ctx.strokeRect(mx1, my1, mw, mh);
+      if (isCrossPair) ctx.setLineDash([]);
 
       // Label
       if (mw > 10) {
         const fs = Math.max(10, 11 * magDpr);
         ctx.font = `${fs}px sans-serif`;
-        const lbl = b.className + (hi ? ` #${hi.num}` : '');
+        const lbl = b.className + (hi ? (hi.crossPair ? ' [pair lain]' : ` #${hi.num}`) : '');
         ctx.fillStyle = color;
         ctx.fillRect(mx1, Math.max(0, my1 - fs - 2), ctx.measureText(lbl).width + 4, fs + 2);
         ctx.fillStyle = '#fff';
@@ -189,6 +193,11 @@ const DedupUI = (() => {
   }
 
   const _dpr = () => window.devicePixelRatio || 1;
+
+  function _isSameSidePair(link, sideA, sideB) {
+    return (link.sideA === sideA && link.sideB === sideB) ||
+           (link.sideA === sideB && link.sideB === sideA);
+  }
 
   // ── Pair definitions ───────────────────────────────────────────────────────
 
@@ -287,28 +296,31 @@ const DedupUI = (() => {
       const bw = bbr.x - btl.x, bh = bbr.y - btl.y;
 
       const hi = highlights.get(b.id);
+      const isCrossPair = !!(hi && hi.crossPair && b.id !== _pendingLeft);
       let color = CanvasRenderer.getClassColor(b.className);
       let lw = lineW;
 
       if (hi) {
         color = hi.color;
-        lw = lineW * 2.5;
+        lw = isCrossPair ? lineW * 1.8 : lineW * 2.5;
         // Colored fill
-        ctx.fillStyle = color + '33';
+        ctx.fillStyle = color + (isCrossPair ? '1f' : '33');
         ctx.fillRect(btl.x, btl.y, bw, bh);
-        // Badge circle
-        const bx = bbr.x - 10, by = btl.y + 10;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(bx, by, 10, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${Math.max(9, tr.scaleToCanvas(10))}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(hi.num, bx, by);
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
+        if (!isCrossPair) {
+          // Badge circle
+          const bx = bbr.x - 10, by = btl.y + 10;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(bx, by, 10, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = `bold ${Math.max(9, tr.scaleToCanvas(10))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(hi.num, bx, by);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'alphabetic';
+        }
       }
 
       // Pending link selection glow (left bbox waiting for right pair)
@@ -321,7 +333,9 @@ const DedupUI = (() => {
 
       ctx.strokeStyle = color;
       ctx.lineWidth = lw;
+      if (isCrossPair) ctx.setLineDash([8, 5]);
       ctx.strokeRect(btl.x, btl.y, bw, bh);
+      if (isCrossPair) ctx.setLineDash([]);
 
       // Edit selection ring (cyan dashed outer)
       if (b.id === editSelId) {
@@ -333,7 +347,8 @@ const DedupUI = (() => {
       }
 
       // Label
-      const label = `#${idx + 1} ${b.className}`;
+      const labelSuffix = hi ? (hi.crossPair ? ' [pair lain]' : ` #${hi.num}`) : '';
+      const label = `#${idx + 1} ${b.className}${labelSuffix}`;
       const fontSize = Math.max(10, tr.scaleToCanvas(11));
       ctx.font = `${fontSize}px sans-serif`;
       const tw = ctx.measureText(label).width;
@@ -368,23 +383,43 @@ const DedupUI = (() => {
     }
   }
 
-  function _getHighlights(pairLinks, pairSuggestions, isLeft) {
+  function _getHighlights(session, pairLinks, pairSuggestions, sideIndex, pairSideA, pairSideB) {
     const map = new Map(); // bboxId → {color, num}
 
-    // Confirmed links — left=sideB (bboxIdB), right=sideA (bboxIdA)
+    // Confirmed links in the active pair
     pairLinks.forEach((link, i) => {
       const color = _colorForLink(link.linkId);
       const num = i + 1;
-      if (isLeft)  map.set(link.bboxIdB, { color, num });
-      else         map.set(link.bboxIdA, { color, num });
+      if (link.sideA === sideIndex) map.set(link.bboxIdA, { color, num });
+      if (link.sideB === sideIndex) map.set(link.bboxIdB, { color, num });
     });
 
     // Suggested links (show after confirmed)
     pairSuggestions.forEach((sug, i) => {
       const color = _colorForSuggest(pairLinks.length + i);
       const num = pairLinks.length + i + 1;
-      if (isLeft  && !map.has(sug.bboxIdB)) map.set(sug.bboxIdB, { color, num, suggested: true });
-      if (!isLeft && !map.has(sug.bboxIdA)) map.set(sug.bboxIdA, { color, num, suggested: true });
+      if (sug.sideA === sideIndex && !map.has(sug.bboxIdA)) {
+        map.set(sug.bboxIdA, { color, num, suggested: true });
+      }
+      if (sug.sideB === sideIndex && !map.has(sug.bboxIdB)) {
+        map.set(sug.bboxIdB, { color, num, suggested: true });
+      }
+    });
+
+    // Cross-pair indicator for boxes linked in another pair.
+    session.confirmedLinks.forEach(link => {
+      if (_isSameSidePair(link, pairSideA, pairSideB)) return;
+
+      let bboxId = null;
+      if (link.sideA === sideIndex) bboxId = link.bboxIdA;
+      else if (link.sideB === sideIndex) bboxId = link.bboxIdB;
+      if (!bboxId || map.has(bboxId)) return;
+
+      map.set(bboxId, {
+        color: CROSS_PAIR_COLOR,
+        num: 'x',
+        crossPair: true,
+      });
     });
 
     return map;
@@ -415,8 +450,8 @@ const DedupUI = (() => {
       l => l.sideA === iA && l.sideB === iB
     );
 
-    _lastHighlightsLeft  = _getHighlights(pairLinks, pairSuggestions, true);
-    _lastHighlightsRight = _getHighlights(pairLinks, pairSuggestions, false);
+    _lastHighlightsLeft  = _getHighlights(session, pairLinks, pairSuggestions, iB, iA, iB);
+    _lastHighlightsRight = _getHighlights(session, pairLinks, pairSuggestions, iA, iA, iB);
     _lastBboxesLeft      = sB.bboxes;
     _lastBboxesRight     = sA.bboxes;
 
@@ -446,6 +481,8 @@ const DedupUI = (() => {
     if (!_suggEl) return;
     _suggEl.innerHTML = '';
 
+    const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
+
     if (suggestions.length === 0) {
       _suggEl.innerHTML = '<p class="dedup-empty">Tidak ada saran.</p>';
       return;
@@ -457,7 +494,7 @@ const DedupUI = (() => {
       btn.className = 'btn btn-success btn-sm';
       btn.textContent = `Terima Semua Auto (${autoCount})`;
       btn.onclick = () => {
-        ActiveSession.confirmAllAuto();
+        ActiveSession.confirmAllAutoForPair(iA, iB);
         _renderPair();
       };
       _suggEl.appendChild(btn);
@@ -465,7 +502,6 @@ const DedupUI = (() => {
 
     suggestions.forEach((sug, i) => {
       const session = ActiveSession.get();
-      const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
       const sA = session.sides[iA], sB = session.sides[iB];
       const bA = sA.bboxes.find(b => b.id === sug.bboxIdA);
       const bB = sB.bboxes.find(b => b.id === sug.bboxIdB);
@@ -593,11 +629,14 @@ const DedupUI = (() => {
       } else {
         // If this sideA bbox is already linked, resurface its partner as pending.
         const linked = session.confirmedLinks.find(
-          l => (l.sideA === iA && l.bboxIdA === bboxId) ||
-               (l.sideB === iA && l.bboxIdB === bboxId)
+          l => _isSameSidePair(l, iA, iB) && (
+            (l.sideA === iA && l.bboxIdA === bboxId) ||
+            (l.sideB === iA && l.bboxIdB === bboxId)
+          )
         );
         if (linked) {
-          _pendingLeft = linked.sideA === iB ? linked.bboxIdA : linked.bboxIdB;
+          if (linked.sideA === iB) _pendingLeft = linked.bboxIdA;
+          else if (linked.sideB === iB) _pendingLeft = linked.bboxIdB;
         }
       }
     }
