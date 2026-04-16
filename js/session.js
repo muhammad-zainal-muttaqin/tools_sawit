@@ -226,6 +226,7 @@ const ActiveSession = (() => {
   }
 
   function isDirty() { return _state ? _state.dirty : false; }
+  function markClean() { if (_state) _state.dirty = false; }
 
   function setTreeId(id) { if (_state) _state.treeId = id; }
   function getTreeId() { return _state ? _state.treeId : ''; }
@@ -272,7 +273,7 @@ const ActiveSession = (() => {
     addBbox, removeBbox, updateBbox,
     runSuggestions, confirmLink, confirmAllAuto,
     rejectLink, addManualLink, removeConfirmedLink,
-    isDirty, toJSON, setTreeId, getTreeId,
+    isDirty, markClean, toJSON, setTreeId, getTreeId,
     get ADJACENT_PAIRS() { return ADJACENT_PAIRS; },
     get TREE_SIDE_LABELS() { return TREE_SIDE_LABELS; },
     get sideCount() { return _state ? _state.sides.length : TREE_SIDE_LABELS.length; },

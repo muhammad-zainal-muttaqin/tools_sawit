@@ -328,13 +328,22 @@ document.addEventListener('DOMContentLoaded', () => {
   /**
    * Compute results and save the output JSON for the current tree.
    */
-  async function _saveCurrentTreeOutput() {
+  async function _saveCurrentTreeOutput(opts = {}) {
+    const recompute = opts.recompute !== false;
+    const allowDirty = !!opts.allowDirty;
     const session = ActiveSession.get();
     if (!session) return;
 
-    // Compute results (union-find clustering)
-    const result = Results.compute(session);
-    _lastResult = result;
+    if (!recompute && !allowDirty && _lastResult && ActiveSession.isDirty()) {
+      _showToast('Ada perubahan baru. Klik "Hitung (+Auto Simpan)" dulu agar output sinkron.', 'info');
+      return;
+    }
+
+    // Compute results (union-find clustering) when needed
+    if (recompute || !_lastResult) {
+      _lastResult = Results.compute(session);
+    }
+    const result = _lastResult;
 
     // Generate output JSON
     const treeId = ActiveSession.getTreeId() || ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
@@ -347,6 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveResult = await FsOutput.saveJSON(filename, outputJson);
 
     if (saveResult.ok) {
+      if (ActiveSession.markClean) ActiveSession.markClean();
       ProjectConfig.markSaved(session.treeName);
       _updateSaveStatus();
       _updateSaveCounter();
@@ -375,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnSaveOutput.disabled = true;
     btnSaveOutput.textContent = 'Menyimpan...';
     try {
-      await _saveCurrentTreeOutput();
+      await _saveCurrentTreeOutput({ recompute: false });
       // Also render results in the Hasil tab if visible
       if (_lastResult) {
         Results.render(_lastResult, resultsContainer);
@@ -383,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } finally {
       btnSaveOutput.disabled = false;
-      btnSaveOutput.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan Output`;
+      btnSaveOutput.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan Ulang Output`;
     }
   });
 
@@ -748,7 +758,7 @@ document.addEventListener('DOMContentLoaded', () => {
     exportButtons.classList.remove('hidden');
 
     // Also auto-save output
-    await _saveCurrentTreeOutput();
+    await _saveCurrentTreeOutput({ recompute: false, allowDirty: true });
   });
 
   btnExportYolo.addEventListener('click', () => {

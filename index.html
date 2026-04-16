@@ -247,19 +247,19 @@
       <!-- ── Tab: Hasil ── -->
       <div class="tab-panel hidden" id="panel-hasil">
         <div class="hasil-header">
-          <button class="btn btn--primary btn--sm" id="btn-hitung">
+          <button class="btn btn--primary btn--sm" id="btn-hitung" title="Hitung ringkasan hasil lalu otomatis simpan output JSON">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-5 5"/></svg>
-            Hitung
+            Hitung (+Auto Simpan)
           </button>
-          <button class="btn btn--accent btn--sm" id="btn-save-output" title="Simpan output JSON ke folder output">
+          <button class="btn btn--accent btn--sm" id="btn-save-output" title="Simpan ulang output JSON terakhir tanpa hitung ulang">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            Simpan Output
+            Simpan Ulang Output
           </button>
           <div class="export-buttons hidden" id="export-buttons">
-            <button class="btn btn--outline btn--sm" id="btn-export-yolo">Export YOLO</button>
-            <button class="btn btn--outline btn--sm" id="btn-export-json">Export JSON / Simpan</button>
-            <button class="btn btn--outline btn--sm" id="btn-export-csv">Export CSV</button>
-            <button class="btn btn--outline btn--sm" id="btn-export-identity">Export Identitas JSON</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-yolo" title="Unduh label YOLO per sisi (termasuk file mismatch jika ada)">Export YOLO</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-json" title="Unduh session JSON untuk backup dan muat sesi">Export Session JSON</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-csv" title="Unduh ringkasan hitungan per pohon dalam format CSV">Export CSV</button>
+            <button class="btn btn--outline btn--sm" id="btn-export-identity" title="Unduh identitas tandan unik dan anggota deteksinya">Export Identitas JSON</button>
           </div>
         </div>
         <div id="results-container"></div>
