@@ -44,23 +44,8 @@ function _norm(bbox, imgW, imgH) {
 }
 
 /**
- * Signal 1a: how close bbox's RIGHT edge is to image right boundary.
- * decay = fraction of image width where score reaches 0.
- */
-function _rightEdgeSig(nb, decay) {
-  return 1 - _clamp((1 - nb.x2) / decay, 0, 1);
-}
-
-/**
- * Signal 1b: how close bbox's LEFT edge is to image left boundary.
- */
-function _leftEdgeSig(nb, decay) {
-  return 1 - _clamp(nb.x1 / decay, 0, 1);
-}
-
-/**
- * Signal 2: vertical center proximity (gravity keeps bunches at same trunk height).
- * tol = max allowed normalized vertical center difference before score → 0.
+ * Vertical center proximity. Gravity keeps bunches at roughly the same trunk
+ * height across adjacent photos.
  */
 function _vertSig(nbA, nbB, tol) {
   const cyA = (nbA.y1 + nbA.y2) / 2;
@@ -69,17 +54,19 @@ function _vertSig(nbA, nbB, tol) {
 }
 
 /**
- * Signal 3: class match.
- * Same class → 1.0, adjacent grade (±1) → 0.6, otherwise → 0.0
+ * Class as penalty MULTIPLIER (not additive signal).
+ * Same class → 1.0, adjacent grade (±1) → 0.85, otherwise → 0.5.
+ * A mismatch cannot zero the score on its own (label noise is common), but it
+ * should degrade confidence enough to drop most wrong pairs below thresholds.
  */
-function _classSig(a, b) {
+function _classMultiplier(a, b) {
   if (a.classId === b.classId) return 1.0;
-  if (Math.abs(a.classId - b.classId) === 1) return 0.6;
-  return 0.0;
+  if (Math.abs(a.classId - b.classId) === 1) return 0.85;
+  return 0.5;
 }
 
 /**
- * Signal 4: size+aspect similarity (logic from deduper.js:141-151).
+ * Size + aspect similarity combined (logic from legacy deduper.js).
  */
 function _sizeSig(nbA, nbB) {
   const eps = 1e-6;
@@ -95,77 +82,135 @@ function _sizeSig(nbA, nbB) {
 /**
  * Suggest cross-side duplicate pairs using pure geometry.
  *
- * Clockwise rotation photography geometry (photographer faces tree):
- *   sideA LEFT edge meets sideB RIGHT edge.
- *   e.g. Depan (photographer facing S): left of photo = East → connects to
- *        Kanan (photographer facing W): right of photo = North → same corner.
+ * Photography geometry assumption (clockwise rotation around the tree):
+ *   sideA's LEFT edge meets sideB's RIGHT edge at the shared corner.
  *
- * @param {Array}  bboxesA         - [{id, classId, x1, y1, x2, y2}, ...]
+ * Phase 1+2 algorithm:
+ *   1. HARD gate by "seam band": only bboxes whose center lies in the half of
+ *      the image closest to the shared edge are candidates. A bunch that lives
+ *      on the far side of one photo cannot physically also appear in the other.
+ *   2. HARD gate by size ratio: pairs with drastically different areas are
+ *      dropped before scoring (they are almost never the same physical bunch).
+ *   3. Score = (0.45·seam + 0.35·vert + 0.20·size) · classMultiplier.
+ *      Class acts as a *penalty* multiplier, not an additive reward.
+ *   4. MUTUAL BEST assignment: keep pair (A,B) only if A's top-scoring partner
+ *      is B and B's top-scoring partner is A. Prevents one well-positioned
+ *      bunch from monopolising matches.
+ *
+ * @param {Array}  bboxesA
  * @param {{w:number, h:number}} imgA
  * @param {Array}  bboxesB
  * @param {{w:number, h:number}} imgB
  * @param {Object} [opts]
- * @param {number} [opts.autoMin=0.75]       score >= autoMin → category 'auto'
- * @param {number} [opts.candidateMin=0.50]  score >= candidateMin → category 'candidate'
- * @param {number} [opts.edgeDecay=0.30]     edge proximity decay (fraction of image width)
- * @param {number} [opts.vertTol=0.20]       vertical tolerance (fraction of image height)
+ * @param {number} [opts.autoMin=0.75]            score >= autoMin → 'auto'
+ * @param {number} [opts.candidateMin=0.50]       score >= candidateMin → 'candidate'
+ * @param {number} [opts.seamBandFraction=0.50]   fraction of image width (from seam) that is eligible
+ * @param {number} [opts.vertTol=0.20]            fraction of image height tolerated for vertical drift
+ * @param {number} [opts.sizeRatioMin=0.30]       hard gate: min(areaA,areaB)/max >= this
+ * @param {boolean}[opts.mutualBest=true]         require mutual top-pick (falls back to greedy if false)
  * @returns {Array<{bboxIdA, bboxIdB, score, category, signals}>}
  */
 function suggestPairs(bboxesA, imgA, bboxesB, imgB, opts = {}) {
-  const autoMin      = opts.autoMin      ?? 0.75;
-  const candidateMin = opts.candidateMin ?? 0.50;
-  const edgeDecay    = opts.edgeDecay    ?? 0.30;
-  const vertTol      = opts.vertTol      ?? 0.20;
+  const autoMin          = opts.autoMin          ?? 0.75;
+  const candidateMin     = opts.candidateMin     ?? 0.50;
+  const seamBandFraction = opts.seamBandFraction ?? 0.50;
+  const vertTol          = opts.vertTol          ?? 0.20;
+  const sizeRatioMin     = opts.sizeRatioMin     ?? 0.30;
+  const mutualBest       = opts.mutualBest       ?? true;
 
-  const all = [];
-
+  // ── Stage 1: hard gate by seam band ────────────────────────────────────
+  // sideA: shared edge is LEFT (x≈0)  → keep bboxes whose center is in [0, band]
+  // sideB: shared edge is RIGHT (x≈1) → keep bboxes whose center is in [1-band, 1]
+  const gatedA = [];
   for (const bA of bboxesA) {
-    const nbA   = _norm(bA, imgA.w, imgA.h);
-    const lSig  = _leftEdgeSig(nbA, edgeDecay);   // sideA: shared edge is LEFT (x1≈0)
+    const nbA = _norm(bA, imgA.w, imgA.h);
+    const cx  = (nbA.x1 + nbA.x2) / 2;
+    if (cx <= seamBandFraction) gatedA.push({ b: bA, nb: nbA, cx });
+  }
+  const gatedB = [];
+  for (const bB of bboxesB) {
+    const nbB = _norm(bB, imgB.w, imgB.h);
+    const cx  = (nbB.x1 + nbB.x2) / 2;
+    if (cx >= (1 - seamBandFraction)) gatedB.push({ b: bB, nb: nbB, cx });
+  }
 
-    for (const bB of bboxesB) {
-      const nbB     = _norm(bB, imgB.w, imgB.h);
-      const rSig    = _rightEdgeSig(nbB, edgeDecay); // sideB: shared edge is RIGHT (x2≈1)
-      const edgeSig = lSig * rSig;                   // product: both must be near their shared edge
-      const vSig    = _vertSig(nbA, nbB, vertTol);
-      const cSig    = _classSig(bA, bB);
-      const sSig    = _sizeSig(nbA, nbB);
+  // ── Stage 2: score every surviving cross-side pair ─────────────────────
+  const scored = [];
+  for (let i = 0; i < gatedA.length; i++) {
+    const { b: bA, nb: nbA, cx: cxA } = gatedA[i];
+    for (let j = 0; j < gatedB.length; j++) {
+      const { b: bB, nb: nbB, cx: cxB } = gatedB[j];
 
-      const score = _clamp(
-        0.40 * edgeSig + 0.35 * vSig + 0.15 * cSig + 0.10 * sSig,
-        0, 1
-      );
+      // Hard size ratio gate
+      const eps = 1e-6;
+      const areaA = Math.max((nbA.x2 - nbA.x1) * (nbA.y2 - nbA.y1), eps);
+      const areaB = Math.max((nbB.x2 - nbB.x1) * (nbB.y2 - nbB.y1), eps);
+      const sizeRatio = Math.min(areaA, areaB) / Math.max(areaA, areaB);
+      if (sizeRatio < sizeRatioMin) continue;
+
+      // Continuous seam signal within the gated band (replaces old edge product).
+      // Each side contributes a score in [0,1]; closer to the seam → 1.0.
+      const seamA = 1 - _clamp(cxA / seamBandFraction, 0, 1);
+      const seamB = 1 - _clamp((1 - cxB) / seamBandFraction, 0, 1);
+      const seamSig = (seamA + seamB) / 2;
+
+      const vSig = _vertSig(nbA, nbB, vertTol);
+      const sSig = _sizeSig(nbA, nbB);
+      const classMult = _classMultiplier(bA, bB);
+
+      const baseScore = 0.45 * seamSig + 0.35 * vSig + 0.20 * sSig;
+      const score = _clamp(baseScore * classMult, 0, 1);
 
       if (score < candidateMin) continue;
 
-      all.push({
-        bboxIdA: bA.id,
-        bboxIdB: bB.id,
+      scored.push({
+        aIdx: i, bIdx: j,
+        bboxIdA: bA.id, bboxIdB: bB.id,
         score,
         signals: {
-          edge: +edgeSig.toFixed(3),
+          seam: +seamSig.toFixed(3),
           vert: +vSig.toFixed(3),
-          cls:  +cSig.toFixed(3),
           size: +sSig.toFixed(3),
+          cls:  +classMult.toFixed(2),
+          sizeRatio: +sizeRatio.toFixed(3),
         },
       });
     }
   }
 
-  // Sort descending, greedy 1-to-1 assignment
-  all.sort((a, b) => b.score - a.score);
-  const usedA = new Set(), usedB = new Set();
-  const result = [];
-
-  for (const pair of all) {
-    if (usedA.has(pair.bboxIdA) || usedB.has(pair.bboxIdB)) continue;
-    usedA.add(pair.bboxIdA);
-    usedB.add(pair.bboxIdB);
-    result.push({
-      ...pair,
-      category: pair.score >= autoMin ? 'auto' : 'candidate',
-    });
+  // ── Stage 3: pair selection (mutual best or greedy fallback) ───────────
+  let chosen;
+  if (mutualBest) {
+    const bestForA = new Map();
+    const bestForB = new Map();
+    for (const p of scored) {
+      const cA = bestForA.get(p.aIdx);
+      if (!cA || p.score > cA.score) bestForA.set(p.aIdx, p);
+      const cB = bestForB.get(p.bIdx);
+      if (!cB || p.score > cB.score) bestForB.set(p.bIdx, p);
+    }
+    chosen = [];
+    for (const [aIdx, p] of bestForA) {
+      const bBest = bestForB.get(p.bIdx);
+      if (bBest && bBest.aIdx === aIdx) chosen.push(p);
+    }
+  } else {
+    scored.sort((x, y) => y.score - x.score);
+    const usedA = new Set(), usedB = new Set();
+    chosen = [];
+    for (const p of scored) {
+      if (usedA.has(p.aIdx) || usedB.has(p.bIdx)) continue;
+      usedA.add(p.aIdx);
+      usedB.add(p.bIdx);
+      chosen.push(p);
+    }
   }
 
-  return result;
+  return chosen.map(p => ({
+    bboxIdA: p.bboxIdA,
+    bboxIdB: p.bboxIdB,
+    score: p.score,
+    signals: p.signals,
+    category: p.score >= autoMin ? 'auto' : 'candidate',
+  }));
 }

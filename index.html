@@ -183,7 +183,7 @@
             <button class="btn-icon btn-icon--sm" id="btn-prev-pair">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
-            <span class="dedup-pair-label" id="dedup-pair-label">Depan ↔ Kanan</span>
+            <span class="dedup-pair-label" id="dedup-pair-label">Sisi 1 ↔ Sisi 2</span>
             <button class="btn-icon btn-icon--sm" id="btn-next-pair">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
             </button>
@@ -195,6 +195,10 @@
           <button class="btn btn--ghost btn--sm active" id="btn-toggle-dedup-magnifier" title="Matikan Magnifier [M]">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
             Magnifier
+          </button>
+          <button class="btn btn--ghost btn--sm active" id="btn-toggle-dedup-suggestions" title="Sembunyikan saran otomatis [S]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            Saran
           </button>
 
           <!-- Dedup edit toolbar: change class / delete for the currently selected bbox -->
@@ -212,18 +216,27 @@
             </button>
           </div>
 
-          <div class="dedup-hint">Klik bbox kiri → klik bbox kanan → tautkan · Drag kosong → bbox baru</div>
-          <div class="dedup-shortcuts"><kbd>←</kbd><kbd>→</kbd> pasangan &nbsp;·&nbsp; <kbd>R</kbd> saran &nbsp;·&nbsp; <kbd>M</kbd> magnifier &nbsp;·&nbsp; <kbd>1-4</kbd> kelas &nbsp;·&nbsp; <kbd>Del</kbd> hapus</div>
+          <button type="button" class="dedup-help" id="btn-dedup-help" aria-label="Bantuan"
+            title="Klik bbox kiri → klik bbox kanan → tautkan
+Drag area kosong → bbox baru
+
+Shortcut:
+← →  pasangan
+R    jalankan saran
+S    tampilkan/sembunyikan saran
+M    magnifier on/off
+1-4  ganti kelas bbox terpilih
+Del  hapus bbox terpilih">?</button>
         </div>
 
         <div class="dedup-canvases">
           <div class="dedup-canvas-block">
-            <div class="dedup-canvas-label" id="dedup-left-label">Depan</div>
+            <div class="dedup-canvas-label" id="dedup-left-label">Sisi 1</div>
             <div class="dedup-canvas-info" id="dedup-left-info"></div>
             <canvas id="dedup-left-canvas" class="dedup-canvas"></canvas>
           </div>
           <div class="dedup-canvas-block">
-            <div class="dedup-canvas-label" id="dedup-right-label">Kanan</div>
+            <div class="dedup-canvas-label" id="dedup-right-label">Sisi 2</div>
             <div class="dedup-canvas-info" id="dedup-right-info"></div>
             <canvas id="dedup-right-canvas" class="dedup-canvas"></canvas>
           </div>
@@ -286,7 +299,7 @@
           <span class="form-hint">Auto-detect dari nama file, bisa diubah manual</span>
         </div>
         <div class="form-group">
-          <label class="form-label">Folder Output</label>
+          <label class="form-label">Folder Output JSON</label>
           <div class="form-row">
             <button class="btn btn--outline btn--sm" id="btn-pick-output-dir">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -294,7 +307,20 @@
             </button>
             <span class="form-value" id="cfg-output-dir-name">Belum dipilih</span>
           </div>
+          <span class="form-hint">Tempat file output JSON per pohon disimpan.</span>
           <span class="form-hint" id="cfg-fs-warning" style="display:none;color:var(--c-warning)">Browser ini tidak mendukung File System Access API. Output akan di-download otomatis.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Folder Label YOLO (.txt)</label>
+          <div class="form-row">
+            <button class="btn btn--outline btn--sm" id="btn-pick-labels-dir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Pilih Folder
+            </button>
+            <span class="form-value" id="cfg-labels-dir-name">Belum dipilih</span>
+            <button class="btn btn--ghost btn--sm" id="btn-clear-labels-dir" type="button" title="Kosongkan pilihan (jangan tulis .txt)">Bersihkan</button>
+          </div>
+          <span class="form-hint">Opsional. Saat Simpan/Hitung, label YOLO hasil koreksi ditulis ke folder ini dengan struktur <code>{split}/{nama_pohon}_{sisi}.txt</code>. Pilih folder berbeda dari dataset asli agar label asli tetap utuh.</span>
         </div>
         <div class="form-group">
           <label class="form-label">Preview Tree ID</label>
@@ -303,6 +329,23 @@
       </div>
       <div class="modal__footer">
         <button class="btn btn--primary" id="btn-cfg-confirm">Mulai Annotasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mismatch Resolve Modal -->
+  <div class="modal-overlay hidden" id="modal-mismatch">
+    <div class="modal modal--wide">
+      <div class="modal__header">
+        <h2 class="modal__title">Resolusi Kelas Tandan</h2>
+        <p class="modal__desc">Beberapa tandan terkonfirmasi memiliki kelas yang tidak konsisten antar sisi. Pilih kelas final untuk masing-masing sebelum melanjutkan.</p>
+      </div>
+      <div class="modal__body" id="mismatch-body">
+        <!-- Populated dynamically -->
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" id="btn-mismatch-cancel">Batal</button>
+        <button class="btn btn--primary" id="btn-mismatch-confirm">Terapkan &amp; Lanjutkan</button>
       </div>
     </div>
   </div>

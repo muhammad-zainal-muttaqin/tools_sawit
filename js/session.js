@@ -1,14 +1,14 @@
 'use strict';
 
 // Dynamic side labels + adjacency — regenerated per tree based on number of photos.
-// For N=4 use compass-style Indonesian labels; for other N use generic "Sisi i".
-let TREE_SIDE_LABELS = ['Depan', 'Kanan', 'Belakang', 'Kiri'];
+// Naming is always numeric ("Sisi 1".."Sisi N") so the UI handles any side count
+// uniformly and avoids bias toward physical compass directions.
+let TREE_SIDE_LABELS = ['Sisi 1', 'Sisi 2', 'Sisi 3', 'Sisi 4'];
 
 // Adjacent pair definitions: [sideA, sideB] clockwise (right edge of A meets left edge of B)
 let ADJACENT_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
 
 function generateSideLabels(n) {
-  if (n === 4) return ['Depan', 'Kanan', 'Belakang', 'Kiri'];
   return Array.from({ length: n }, (_, i) => `Sisi ${i + 1}`);
 }
 
@@ -126,6 +126,136 @@ const ActiveSession = (() => {
     if (idx === -1) return;
     side.bboxes[idx] = { ...side.bboxes[idx], ...patch };
     _markDirty();
+  }
+
+  /**
+   * Return every bbox in the same confirmed cross-side cluster as (sideIndex, bboxId),
+   * including the anchor itself. Uses Union-Find over `confirmedLinks`.
+   * If the bbox belongs to no cluster, a single-element list with just the anchor
+   * is returned.
+   *
+   * @returns {Array<{sideIndex:number, bboxId:string}>}
+   */
+  function getClusterMembers(sideIndex, bboxId) {
+    if (!_state) return [];
+    const anchorKey = _bboxNodeKey(sideIndex, bboxId);
+    const validNodes = _validNodeSet();
+    if (!validNodes.has(anchorKey)) return [];
+
+    const uf = createUnionFind(Array.from(validNodes));
+    for (const link of _state.confirmedLinks) {
+      const a = _bboxNodeKey(link.sideA, link.bboxIdA);
+      const b = _bboxNodeKey(link.sideB, link.bboxIdB);
+      if (validNodes.has(a) && validNodes.has(b)) uf.union(a, b);
+    }
+
+    const root = uf.find(anchorKey);
+    const members = [];
+    for (const side of _state.sides) {
+      for (const bbox of side.bboxes) {
+        const key = _bboxNodeKey(side.sideIndex, bbox.id);
+        if (uf.find(key) === root) {
+          members.push({ sideIndex: side.sideIndex, bboxId: bbox.id });
+        }
+      }
+    }
+    return members;
+  }
+
+  /**
+   * Change the class of a bbox and (by default) propagate the change to every
+   * other bbox in the same confirmed cluster. Returns the list of affected
+   * members so callers can refresh the UI.
+   *
+   * @param {number}  sideIndex
+   * @param {string}  bboxId
+   * @param {number}  classId
+   * @param {object}  [opts]
+   * @param {boolean} [opts.propagate=true]
+   * @returns {Array<{sideIndex:number, bboxId:string}>}
+   */
+  function setBboxClass(sideIndex, bboxId, classId, opts = {}) {
+    if (!_state) return [];
+    const propagate = opts.propagate !== false;
+    const className = (typeof CLASS_MAP !== 'undefined' && CLASS_MAP[classId]) || ('C' + classId);
+    const targets = propagate
+      ? getClusterMembers(sideIndex, bboxId)
+      : [{ sideIndex, bboxId }];
+
+    if (targets.length === 0) {
+      updateBbox(sideIndex, bboxId, { classId, className });
+      return [{ sideIndex, bboxId }];
+    }
+    for (const t of targets) {
+      updateBbox(t.sideIndex, t.bboxId, { classId, className });
+    }
+    return targets;
+  }
+
+  /**
+   * Propagate the CURRENT class of a bbox to the rest of its cluster. Useful
+   * when a class was mutated outside `setBboxClass` (e.g. by the bbox editor)
+   * and we still want cluster-wide consistency.
+   */
+  function propagateClassFromBox(sideIndex, bboxId) {
+    if (!_state) return [];
+    const side = _state.sides[sideIndex];
+    if (!side) return [];
+    const anchor = side.bboxes.find(b => b.id === bboxId);
+    if (!anchor) return [];
+    return setBboxClass(sideIndex, bboxId, anchor.classId, { propagate: true });
+  }
+
+  /**
+   * Return clusters whose members disagree on class. Each entry has all member
+   * refs, the set of observed classIds, and the majority-vote classId. Used to
+   * drive the mismatch-resolve modal before Hitung / auto-save.
+   */
+  function getMismatchedClusters() {
+    if (!_state) return [];
+    const validNodes = _validNodeSet();
+    const uf = createUnionFind(Array.from(validNodes));
+    for (const link of _state.confirmedLinks) {
+      const a = _bboxNodeKey(link.sideA, link.bboxIdA);
+      const b = _bboxNodeKey(link.sideB, link.bboxIdB);
+      if (validNodes.has(a) && validNodes.has(b)) uf.union(a, b);
+    }
+
+    const byRoot = new Map();
+    for (const side of _state.sides) {
+      for (const bbox of side.bboxes) {
+        const key = _bboxNodeKey(side.sideIndex, bbox.id);
+        if (!validNodes.has(key)) continue;
+        const root = uf.find(key);
+        if (!byRoot.has(root)) byRoot.set(root, []);
+        byRoot.get(root).push({
+          sideIndex: side.sideIndex,
+          bboxId: bbox.id,
+          classId: bbox.classId,
+          className: bbox.className,
+        });
+      }
+    }
+
+    const mismatches = [];
+    for (const members of byRoot.values()) {
+      if (members.length < 2) continue;
+      const classSet = new Set(members.map(m => m.classId));
+      if (classSet.size <= 1) continue;
+
+      const votes = {};
+      for (const m of members) votes[m.classId] = (votes[m.classId] || 0) + 1;
+      const majorityClassId = Number(
+        Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0]
+      );
+
+      mismatches.push({
+        members,
+        classIds: Array.from(classSet),
+        majorityClassId,
+      });
+    }
+    return mismatches;
   }
 
   // ── Dedup Links ────────────────────────────────────────────────────────────
@@ -512,6 +642,7 @@ const ActiveSession = (() => {
   return {
     loadTree, fromJSON, get,
     addBbox, removeBbox, updateBbox,
+    setBboxClass, propagateClassFromBox, getClusterMembers, getMismatchedClusters,
     runSuggestions, confirmLink, confirmAllAuto, confirmAllAutoForPair,
     rejectLink, addManualLink, removeConfirmedLink,
     isDirty, markClean, toJSON, setTreeId, getTreeId,

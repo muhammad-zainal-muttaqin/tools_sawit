@@ -304,7 +304,7 @@ const BBoxEditor = (() => {
 
   // ── Factory ───────────────────────────────────────────────────────────────
 
-  function create(canvas, imageUrl, initialBboxes, onUpdate) {
+  function create(canvas, imageUrl, initialBboxes, onUpdate, onClassChange) {
     let bboxes = (initialBboxes || []).map(b => ({ ...b }));
     let selectedId = null;
     let hoveredId  = null;
@@ -518,6 +518,9 @@ const BBoxEditor = (() => {
         if (idx !== -1) {
           bboxes[idx] = { ...bboxes[idx], classId, className: CLASS_MAP[classId] };
           onUpdate && onUpdate([...bboxes]);
+          // Let the host propagate this class change to any confirmed-cluster siblings
+          // on other sides (which this editor does not render).
+          onClassChange && onClassChange(bboxes[idx].id, classId);
           _render(state);
         }
       }

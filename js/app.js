@@ -19,14 +19,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveCounter      = document.getElementById('save-counter');
   const btnSaveOutput    = document.getElementById('btn-save-output');
 
+  // Mismatch resolve modal
+  const modalMismatch    = document.getElementById('modal-mismatch');
+  const mismatchBody     = document.getElementById('mismatch-body');
+  const btnMismatchCancel= document.getElementById('btn-mismatch-cancel');
+  const btnMismatchConfirm=document.getElementById('btn-mismatch-confirm');
+
   // Project config modal elements
   const modalProjectCfg  = document.getElementById('modal-project-config');
   const cfgDate          = document.getElementById('cfg-date');
   const cfgVarietas      = document.getElementById('cfg-varietas');
   const cfgOutputDirName = document.getElementById('cfg-output-dir-name');
+  const cfgLabelsDirName = document.getElementById('cfg-labels-dir-name');
   const cfgFsWarning     = document.getElementById('cfg-fs-warning');
   const cfgPreviewId     = document.getElementById('cfg-preview-id');
   const btnPickOutputDir = document.getElementById('btn-pick-output-dir');
+  const btnPickLabelsDir = document.getElementById('btn-pick-labels-dir');
+  const btnClearLabelsDir= document.getElementById('btn-clear-labels-dir');
   const btnCfgConfirm    = document.getElementById('btn-cfg-confirm');
   const toastContainer   = document.getElementById('toast-container');
 
@@ -55,7 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const dedupRightCanvas = document.getElementById('dedup-right-canvas');
   const dedupSuggestionsEl = document.getElementById('dedup-suggestions');
   const dedupLinksEl     = document.getElementById('dedup-links');
-  const btnToggleDedupMagnifier = document.getElementById('btn-toggle-dedup-magnifier');
+  const btnToggleDedupMagnifier  = document.getElementById('btn-toggle-dedup-magnifier');
+  const btnToggleDedupSuggestions= document.getElementById('btn-toggle-dedup-suggestions');
 
   const fileInfo         = document.getElementById('file-info');
 
@@ -75,8 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let _lastResult = null;
   let _pendingTrees = null;  // trees waiting for config modal confirmation
   let _autoSaving = false;   // prevent re-entrant auto-save
-
-  const SIDE_COMPASS = ['N · Utara', 'E · Timur', 'S · Selatan', 'W · Barat'];
 
   // ── Dataset loading ────────────────────────────────────────────────────────
 
@@ -122,12 +130,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!ProjectConfig.isFileSystemAccessSupported()) {
       cfgFsWarning.style.display = '';
       btnPickOutputDir.disabled = true;
+      if (btnPickLabelsDir) btnPickLabelsDir.disabled = true;
     } else {
       cfgFsWarning.style.display = 'none';
       btnPickOutputDir.disabled = false;
+      if (btnPickLabelsDir) btnPickLabelsDir.disabled = false;
     }
 
     cfgOutputDirName.textContent = 'Belum dipilih';
+    if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Belum dipilih';
     modalProjectCfg.classList.remove('hidden');
   }
 
@@ -146,6 +157,21 @@ document.addEventListener('DOMContentLoaded', () => {
       cfgOutputDirName.textContent = ProjectConfig.get().outputDirName;
     }
   });
+
+  if (btnPickLabelsDir) {
+    btnPickLabelsDir.addEventListener('click', async () => {
+      const ok = await ProjectConfig.pickLabelsDirectory();
+      if (ok && cfgLabelsDirName) {
+        cfgLabelsDirName.textContent = ProjectConfig.get().labelsDirName;
+      }
+    });
+  }
+  if (btnClearLabelsDir) {
+    btnClearLabelsDir.addEventListener('click', () => {
+      ProjectConfig.clearLabelsDirectory();
+      if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Belum dipilih';
+    });
+  }
 
   btnCfgConfirm.addEventListener('click', async () => {
     // Apply config
@@ -317,6 +343,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Already saved this tree AND no new edits since? Skip.
     if (ProjectConfig.isSaved(session.treeName) && !ActiveSession.isDirty()) return;
 
+    // Force user to resolve class mismatches before persisting. If they cancel,
+    // leave the session dirty — the prompt will return on the next save attempt.
+    const ok = await _resolveMismatchesIfAny();
+    if (!ok) {
+      _showToast('Auto-simpan ditunda: resolusi kelas belum selesai.', 'info');
+      return;
+    }
+
     _autoSaving = true;
     try {
       await _saveCurrentTreeOutput();
@@ -374,14 +408,49 @@ document.addEventListener('DOMContentLoaded', () => {
       const method = saveResult.method === 'filesystem' ? 'folder output' : 'download';
       _showToast(`Tersimpan: ${filename} (${method})`, 'success');
       console.log('[Output]', filename, '→', saveResult.method);
+
+      // Write corrected YOLO .txt labels into the labels folder if configured.
+      await _saveCorrectedLabels(session);
     } else {
       _showToast(`Gagal menyimpan: ${saveResult.error}`, 'error');
       console.error('[Output] Save failed:', saveResult.error);
     }
   }
 
+  /**
+   * Write one YOLO-format .txt per side into the configured labels directory
+   * (nested under the dataset split). No-ops when no labels directory is set.
+   */
+  async function _saveCorrectedLabels(session) {
+    if (!session) return;
+    if (!ProjectConfig.getLabelsDirHandle()) return;  // picker left blank → skip
+    if (!FsOutput.saveLabelFile) return;
+
+    let saved = 0;
+    let failed = 0;
+    for (const side of session.sides) {
+      if (!side.imageWidth || !side.imageHeight) continue;
+      const filename = `${session.treeName}_${side.sideIndex + 1}.txt`;
+      const content = toYoloFormat(side.bboxes, side.imageWidth, side.imageHeight);
+      const res = await FsOutput.saveLabelFile(filename, content, session.split);
+      if (res.ok) saved++;
+      else { failed++; console.warn('[Labels] failed:', filename, res.error); }
+    }
+    if (saved > 0) {
+      _showToast(`Label .txt tersimpan: ${saved} sisi ke folder label`, 'success');
+    }
+    if (failed > 0) {
+      _showToast(`Gagal menulis ${failed} label .txt (cek console).`, 'error');
+    }
+  }
+
   // Manual save button
   btnSaveOutput.addEventListener('click', async () => {
+    const ok = await _resolveMismatchesIfAny();
+    if (!ok) {
+      _showToast('Simpan dibatalkan: resolusi kelas belum selesai.', 'info');
+      return;
+    }
     btnSaveOutput.disabled = true;
     btnSaveOutput.textContent = 'Menyimpan...';
     try {
@@ -590,12 +659,24 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     canvasPlaceholder.classList.add('hidden');
-    _editor = BBoxEditor.create(editorCanvas, side.imageUrl, side.bboxes, (updatedBboxes) => {
-      // BBoxEditor owns the bbox array directly; sync back to session state
-      ActiveSession.get().sides[sideIndex].bboxes = updatedBboxes;
-      ActiveSession.get().dirty = true;
-      _updateBboxCount(sideIndex);
-    });
+    _editor = BBoxEditor.create(
+      editorCanvas,
+      side.imageUrl,
+      side.bboxes,
+      (updatedBboxes) => {
+        // BBoxEditor owns the bbox array directly; sync back to session state
+        ActiveSession.get().sides[sideIndex].bboxes = updatedBboxes;
+        ActiveSession.get().dirty = true;
+        _updateBboxCount(sideIndex);
+      },
+      (bboxId /*, classId */) => {
+        // Propagate class change to every other bbox in the same confirmed cluster
+        // so paired bboxes on sibling sides stay class-consistent. The editor
+        // already updated the active side's bbox in place; we only need to
+        // mutate sibling sides, which happens inside ActiveSession.
+        ActiveSession.propagateClassFromBox(sideIndex, bboxId);
+      }
+    );
     _updateBboxCount(sideIndex);
   }
 
@@ -640,6 +721,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!ActiveSession.get()) return;
     DedupUI.init(dedupLeftCanvas, dedupRightCanvas, dedupSuggestionsEl, dedupLinksEl);
     _updateDedupMagnifierBtn();
+    _updateDedupSuggestionsBtn();
     _dedupInitialized = true;
     _updateDedupPairUI();
     DedupUI.showPair(_currentPair);
@@ -652,6 +734,15 @@ document.addEventListener('DOMContentLoaded', () => {
     btnToggleDedupMagnifier.title = on ? 'Matikan Magnifier [M]' : 'Kaca pembesar [M]';
   }
 
+  function _updateDedupSuggestionsBtn() {
+    if (!btnToggleDedupSuggestions || !DedupUI.getSuggestionsVisible) return;
+    const on = DedupUI.getSuggestionsVisible();
+    btnToggleDedupSuggestions.classList.toggle('active', on);
+    btnToggleDedupSuggestions.title = on
+      ? 'Sembunyikan saran otomatis [S]'
+      : 'Tampilkan saran otomatis [S]';
+  }
+
   function _updateDedupPairUI() {
     const pairs = window.ADJACENT_PAIRS || [];
     if (!pairs.length || !pairs[_currentPair]) return;
@@ -659,17 +750,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const labels = window.TREE_SIDE_LABELS || [];
     const lA = labels[iA] || `Sisi ${iA + 1}`;
     const lB = labels[iB] || `Sisi ${iB + 1}`;
-    // Compass labels only meaningful for N=4; omit otherwise.
-    const compassA = (labels.length === 4 && SIDE_COMPASS[iA]) ? SIDE_COMPASS[iA] : '';
-    const compassB = (labels.length === 4 && SIDE_COMPASS[iB]) ? SIDE_COMPASS[iB] : '';
     dedupPairLabel.textContent = `${lB} ↔ ${lA}`;
     // Display: left=sideB, right=sideA (shared edges face center between canvases)
     dedupLeftLabel.innerHTML = `
-      <span class="dedup-label-main">${lB}${compassB ? ` <span class="compass-label">${compassB}</span>` : ''}</span>
+      <span class="dedup-label-main">${lB}</span>
       <span class="edge-arrow edge-arrow--right">tepi kanan →</span>
     `;
     dedupRightLabel.innerHTML = `
-      <span class="dedup-label-main">${lA}${compassA ? ` <span class="compass-label">${compassA}</span>` : ''}</span>
+      <span class="dedup-label-main">${lA}</span>
       <span class="edge-arrow edge-arrow--left">← tepi kiri</span>
     `;
   }
@@ -697,6 +785,13 @@ document.addEventListener('DOMContentLoaded', () => {
     btnToggleDedupMagnifier.addEventListener('click', () => {
       DedupUI.setMagnifierEnabled(!DedupUI.getMagnifierEnabled());
       _updateDedupMagnifierBtn();
+    });
+  }
+
+  if (btnToggleDedupSuggestions) {
+    btnToggleDedupSuggestions.addEventListener('click', () => {
+      DedupUI.setSuggestionsVisible(!DedupUI.getSuggestionsVisible());
+      _updateDedupSuggestionsBtn();
     });
   }
 
@@ -748,11 +843,112 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.innerHTML = panels.classList.contains('collapsed') ? '&#9654; Saran &amp; Link' : '&#9660; Saran &amp; Link';
   });
 
+  // ── Mismatch resolve modal ──────────────────────────────────────────────
+
+  let _mismatchResolver = null; // Promise resolver for the currently-open modal
+
+  /**
+   * Show the mismatch-resolve modal for any class-inconsistent cluster in the
+   * active session. Returns a Promise that resolves to `true` once the user has
+   * picked a final class for every mismatch and clicked Apply, or `false` if
+   * they cancelled. Resolves immediately to `true` when there are no mismatches.
+   */
+  function _resolveMismatchesIfAny() {
+    return new Promise((resolve) => {
+      const mismatches = ActiveSession.getMismatchedClusters();
+      if (!mismatches || mismatches.length === 0) { resolve(true); return; }
+
+      // Pre-seed each row with the majority-vote classId.
+      const picks = mismatches.map(m => m.majorityClassId);
+
+      mismatchBody.innerHTML = '';
+      const list = document.createElement('div');
+      list.className = 'mismatch-list';
+
+      mismatches.forEach((mm, i) => {
+        const item = document.createElement('div');
+        item.className = 'mismatch-item';
+
+        const head = document.createElement('div');
+        head.className = 'mismatch-item__head';
+        const title = document.createElement('span');
+        title.className = 'mismatch-item__title';
+        title.textContent = `Tandan #${i + 1}`;
+        head.appendChild(title);
+        item.appendChild(head);
+
+        const members = document.createElement('div');
+        members.className = 'mismatch-item__members';
+        members.textContent = mm.members.map(m => {
+          const label = (window.TREE_SIDE_LABELS || [])[m.sideIndex] || `Sisi ${m.sideIndex + 1}`;
+          return `${label}: ${m.className}`;
+        }).join('  ·  ');
+        item.appendChild(members);
+
+        const choices = document.createElement('div');
+        choices.className = 'mismatch-item__choices';
+        // Offer every class observed in this cluster as a choice.
+        const classIds = mm.classIds.slice().sort((a, b) => a - b);
+        classIds.forEach(cid => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'mismatch-item__choice' + (cid === picks[i] ? ' active' : '');
+          btn.textContent = CLASS_MAP[cid] || ('C' + cid);
+          btn.dataset.classId = String(cid);
+          btn.addEventListener('click', () => {
+            picks[i] = cid;
+            choices.querySelectorAll('.mismatch-item__choice').forEach(el => {
+              el.classList.toggle('active', Number(el.dataset.classId) === cid);
+            });
+          });
+          choices.appendChild(btn);
+        });
+        item.appendChild(choices);
+
+        list.appendChild(item);
+      });
+
+      mismatchBody.appendChild(list);
+      modalMismatch.classList.remove('hidden');
+
+      _mismatchResolver = (apply) => {
+        if (apply) {
+          mismatches.forEach((mm, i) => {
+            const targetClassId = picks[i];
+            if (!Number.isInteger(targetClassId)) return;
+            // Find any member whose class already matches target, otherwise use the first.
+            const anchor = mm.members.find(m => m.classId === targetClassId) || mm.members[0];
+            ActiveSession.setBboxClass(anchor.sideIndex, anchor.bboxId, targetClassId);
+          });
+        }
+        modalMismatch.classList.add('hidden');
+        mismatchBody.innerHTML = '';
+        _mismatchResolver = null;
+        resolve(!!apply);
+      };
+    });
+  }
+
+  btnMismatchCancel.addEventListener('click', () => {
+    if (_mismatchResolver) _mismatchResolver(false);
+  });
+  btnMismatchConfirm.addEventListener('click', () => {
+    if (_mismatchResolver) _mismatchResolver(true);
+  });
+
   // ── Hasil ──────────────────────────────────────────────────────────────────
 
   btnHitung.addEventListener('click', async () => {
     const session = ActiveSession.get();
     if (!session) return;
+
+    // Block Hitung until all class mismatches are resolved.
+    const ok = await _resolveMismatchesIfAny();
+    if (!ok) {
+      _showToast('Hitung dibatalkan: resolusi kelas belum selesai.', 'info');
+      return;
+    }
+
     _lastResult = Results.compute(session);
     Results.render(_lastResult, resultsContainer);
     exportButtons.classList.remove('hidden');
@@ -824,6 +1020,14 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         return;
       }
+    }
+
+    // Suggestions visibility toggle (dedup tab only)
+    if ((e.key === 's' || e.key === 'S') && tab === 'dedup') {
+      DedupUI.setSuggestionsVisible(!DedupUI.getSuggestionsVisible());
+      _updateDedupSuggestionsBtn();
+      e.preventDefault();
+      return;
     }
 
     // Skip remaining shortcuts when canvas has focus (bbox editor handles its own keys)

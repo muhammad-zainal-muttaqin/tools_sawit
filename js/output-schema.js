@@ -14,8 +14,6 @@
  */
 const OutputSchema = (() => {
 
-  const SIDE_KEYS = ['depan', 'kanan', 'belakang', 'kiri'];
-
   function _bboxKey(sideIndex, bboxId) {
     return `${sideIndex}:${bboxId}`;
   }
@@ -86,13 +84,12 @@ const OutputSchema = (() => {
   }
 
   /**
-   * Get a stable side key for a given side index and total side count.
-   * For N=4 uses compass names; otherwise uses generic "sisi_N".
+   * Get a stable side key for a given side index.
+   * Uniform numeric naming: always "sisi_N" (1-based) regardless of total sides.
+   * The `totalSides` argument is retained for backward-compatibility with
+   * existing call sites but is no longer used for key selection.
    */
-  function _sideKey(sideIndex, totalSides) {
-    if (totalSides === 4 && sideIndex < 4) {
-      return SIDE_KEYS[sideIndex];
-    }
+  function _sideKey(sideIndex /*, totalSides */) {
     return 'sisi_' + (sideIndex + 1);
   }
 

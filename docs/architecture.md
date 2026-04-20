@@ -82,8 +82,8 @@
   split: "train",
   sides: [
     {
-      sideIndex: 0,             // 0 = Depan, 1 = Kanan, 2 = Belakang, 3 = Kiri
-      label: "Depan",
+      sideIndex: 0,             // 0..N-1; label UI selalu "Sisi (sideIndex+1)"
+      label: "Sisi 1",
       imageWidth, imageHeight,
       bboxes: [
         { id: "b0", classId: 1, className: "B1",
@@ -111,10 +111,11 @@ Lihat `js/output-schema.js`. Struktur ringkas:
   split: "train",
   metadata: { date, varietas, number, generated_at },
   images: {
-    depan:    { filename, label_file, side_index: 0, width, height, bbox_count, annotations: [...] },
-    kanan:    { ... },
-    belakang: { ... },
-    kiri:     { ... }
+    sisi_1: { filename, label_file, side_index: 0, width, height, bbox_count, annotations: [...] },
+    sisi_2: { ... },
+    sisi_3: { ... },
+    sisi_4: { ... }
+    // ...sisi_N untuk dataset N-sisi
   },
   bunches: [
     {
@@ -123,15 +124,15 @@ Lihat `js/output-schema.js`. Struktur ringkas:
       class_mismatch: false,
       appearance_count: 2,
       appearances: [
-        { side: "depan", side_index: 0, box_index: 3, class_name: "B2", bbox_pixel: [x1,y1,x2,y2] },
-        { side: "kanan", side_index: 1, box_index: 0, ... }
+        { side: "sisi_1", side_index: 0, box_index: 3, class_name: "B2", bbox_pixel: [x1,y1,x2,y2] },
+        { side: "sisi_2", side_index: 1, box_index: 0, ... }
       ]
     }
   ],
   summary: {
     total_unique_bunches, total_detections, duplicates_linked,
     by_class: { B1: n, B2: n, ... },
-    by_side:  { depan: n, kanan: n, ... }
+    by_side:  { sisi_1: n, sisi_2: n, ... }
   }
 }
 ```
@@ -144,31 +145,39 @@ Tiap anotasi membawa **dua** bentuk koordinat — `bbox_yolo` (normalized cx,cy,
 
 ### Pasangan yang Dibandingkan
 
-Hanya sisi **bersebelahan** dalam putaran searah jarum jam:
+Hanya sisi **bersebelahan** dalam urutan putaran (mis. untuk 4 sisi):
 
 ```
-Depan ↔ Kanan
-Kanan ↔ Belakang
-Belakang ↔ Kiri
-Kiri ↔ Depan
+Sisi 1 ↔ Sisi 2
+Sisi 2 ↔ Sisi 3
+Sisi 3 ↔ Sisi 4
+Sisi 4 ↔ Sisi 1
 ```
 
-Sisi berlawanan (Depan↔Belakang, Kanan↔Kiri) tidak dibandingkan — perspektifnya 180° berbeda sehingga objek yang sama nyaris tidak mungkin matched secara reliabel.
+Sisi berlawanan (Sisi 1↔Sisi 3, Sisi 2↔Sisi 4 pada dataset 4 sisi) tidak dibandingkan — perspektifnya terlalu berbeda sehingga objek yang sama nyaris tidak mungkin match secara reliabel. Untuk dataset N-sisi, `ADJACENT_PAIRS` di-generate otomatis.
 
 ### Skor Pasangan (`suggestPairs` di `dedup-utils.js`)
 
+Algoritma menerapkan dua hard gate sebelum scoring, kemudian mutual best pairing setelah scoring.
+
+**Hard gate 1 — seam band:** Hanya bbox yang pusatnya berada pada separuh gambar dekat garis seam antar dua sisi yang dipertimbangkan (`seamBandFraction = 0.50` default). Bbox di separuh jauh tidak mungkin juga tertangkap di gambar sebelahnya.
+
+**Hard gate 2 — size ratio:** Pair dibuang jika `min(areaA,areaB)/max(areaA,areaB) < sizeRatioMin` (default `0.30`).
+
+**Skoring:**
+
 ```
-score = 0.40 × edge + 0.35 × vert + 0.15 × class + 0.10 × size
+score = (0.45 × seam + 0.35 × vert + 0.20 × size) × classMult
 ```
 
 | Sinyal | Penjelasan |
 |---|---|
-| **edge** | Produk kedekatan bbox A ke tepi kiri × bbox B ke tepi kanan (atau sesuai geometri putaran). Tandan yang sama harus muncul dekat tepi yang dibagi. |
+| **seam** | Rata-rata dua seam-proximity kontinu (tiap sisi: 1 di tepi, 0 di batas band). |
 | **vert** | Kemiripan posisi Y centroid (gravitasi → tandan tetap di tinggi yang sama). |
-| **class** | Kelas sama → 1.0; beda 1 grade (mis. B1↔B2) → 0.6; lainnya → 0.0. |
 | **size** | Gabungan kemiripan area (60%) + aspect ratio (40%). |
+| **classMult** | Pengali: 1.0 jika class sama, 0.85 jika ±1 grade, 0.5 jika jauh. Class bukan sinyal aditif. |
 
-### Kategorisasi & Greedy 1-to-1
+### Kategorisasi & Mutual Best Pair
 
 ```
 score ≥ autoMin   (default 0.75)  → category: "auto"        (saran kuat)
@@ -176,7 +185,9 @@ score ≥ candMin   (default 0.50)  → category: "candidate"   (saran lemah)
 score <  candMin                  → buang
 ```
 
-Saran diurutkan turun, di-assign greedy 1-to-1 (satu bbox tidak bisa terpasang ke lebih dari satu kandidat lawan). User punya keputusan akhir: terima saran, tolak, atau tautkan manual.
+Pair `(A, B)` hanya dipertahankan jika `A` paling cocok dengan `B` **dan** `B` paling cocok dengan `A` (`mutualBest = true`). Mencegah satu bbox memonopoli kandidat seperti greedy assignment versi lama.
+
+Detail lengkap dan roadmap (Tahap 1–4) di [README.md](../README.md#algoritma-saran-tahap-1--2-aktif). Panduan tuning parameter di [tuning-guide.md](tuning-guide.md).
 
 ### Final Aggregation
 

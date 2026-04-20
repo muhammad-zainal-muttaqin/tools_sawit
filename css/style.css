@@ -1681,35 +1681,55 @@ input { font-family: inherit; }
 .dedup-header {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
+  gap: var(--space-xs);
+  padding: 6px var(--space-md);
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .dedup-pair-nav {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .dedup-pair-label {
   font-weight: 600;
-  font-size: 0.9rem;
-  min-width: 140px;
+  font-size: 0.85rem;
+  min-width: 110px;
   text-align: center;
   font-family: var(--f-mono);
+  white-space: nowrap;
 }
 
-.dedup-hint {
+.dedup-help {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-raised);
+  color: var(--c-text-muted);
   font-size: 0.75rem;
-  color: var(--c-text-dim);
-  flex: 1 1 100%;
-  order: 10;
-  padding-top: 4px;
-  border-top: 1px dashed var(--c-border);
+  font-weight: 700;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dedup-help:hover {
+  background: var(--c-accent);
+  color: #fff;
+  border-color: var(--c-accent);
 }
 
 .dedup-edit-toolbar {
@@ -1906,6 +1926,35 @@ input { font-family: inherit; }
   white-space: nowrap;
 }
 
+.dedup-suggestion-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dedup-signal-badges {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.sig-badge {
+  font-family: var(--f-mono);
+  font-size: 0.62rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.sig-badge.sig-hi  { color: var(--c-emerald); border-color: var(--c-emerald); }
+.sig-badge.sig-mid { color: var(--c-warn);    border-color: var(--c-warn); }
+.sig-badge.sig-lo  { color: var(--c-red);     border-color: var(--c-red); }
+
 /* Small button variants */
 .btn-success { background: var(--c-emerald); color: var(--c-bg); border: none; border-radius: var(--r-sm); }
 .btn-success:hover { opacity: 0.85; }
@@ -2067,19 +2116,6 @@ kbd {
 }
 
 /* ---- Dedup shortcuts hint ---- */
-.dedup-shortcuts {
-  font-size: 0.72rem;
-  color: var(--c-text-dim);
-  white-space: nowrap;
-  flex: 1 1 100%;
-  order: 11;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-.dedup-shortcuts kbd {
-  font-size: 0.65rem;
-}
-
 /* ---- Dedup canvas slide animation ---- */
 @keyframes dedupSlideLeft {
   0%   { transform: translateX(0);    opacity: 1; }
@@ -2118,6 +2154,70 @@ kbd {
   max-width: 480px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+}
+
+.modal--wide {
+  max-width: 640px;
+}
+
+/* ==== Mismatch Resolve list ==== */
+
+.mismatch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.mismatch-item {
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--c-bg);
+}
+.mismatch-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mismatch-item__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.mismatch-item__members {
+  font-size: 0.76rem;
+  color: var(--c-text-dim);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.mismatch-item__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mismatch-item__choice {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-raised);
+  color: var(--c-text-dim);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.mismatch-item__choice:hover {
+  border-color: var(--c-accent);
+  color: var(--c-text);
+}
+.mismatch-item__choice.active {
+  border-color: var(--c-accent);
+  background: rgba(184, 224, 74, 0.12);
+  color: var(--c-accent);
 }
 
 .modal__header {

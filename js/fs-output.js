@@ -59,6 +59,56 @@ const FsOutput = (() => {
   }
 
   /**
+   * Resolve (or create) a nested sub-directory under a given FileSystemDirectoryHandle.
+   * `segments` is an ordered array of folder names, e.g. ['train'].
+   */
+  async function _resolveSubDir(rootHandle, segments) {
+    let cur = rootHandle;
+    for (const seg of segments) {
+      if (!seg) continue;
+      cur = await cur.getDirectoryHandle(seg, { create: true });
+    }
+    return cur;
+  }
+
+  /**
+   * Save a corrected YOLO .txt label file into the configured labels directory.
+   * The file is nested by `split` (e.g. "train") when provided so the output
+   * mirrors the dataset layout. If no labels directory is configured or the
+   * File System Access API is unavailable, the file is downloaded instead.
+   *
+   * @param {string} filename   e.g. "DAMIMAS_A21B_0003_1.txt"
+   * @param {string} content    YOLO-formatted label text
+   * @param {string} [split]    dataset split name ("train"|"val"|"test"|...)
+   * @returns {Promise<{ok:boolean, method:string, error?:string}>}
+   */
+  async function saveLabelFile(filename, content, split) {
+    const labelsDir = ProjectConfig.getLabelsDirHandle();
+
+    if (labelsDir) {
+      try {
+        const segments = [];
+        if (split && split !== 'unknown') segments.push(split);
+        const dir = await _resolveSubDir(labelsDir, segments);
+        const fileHandle = await dir.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return { ok: true, method: 'filesystem' };
+      } catch (e) {
+        console.warn('[FsOutput] Label write failed, falling back to download:', e);
+      }
+    }
+
+    try {
+      _download(filename, content, 'text/plain');
+      return { ok: true, method: 'download' };
+    } catch (e) {
+      return { ok: false, method: 'none', error: e.message };
+    }
+  }
+
+  /**
    * Trigger a browser download (fallback).
    */
   function _download(filename, content, mimeType) {
@@ -126,7 +176,7 @@ const FsOutput = (() => {
     return JSON.parse(await file.text());
   }
 
-  return { saveJSON, saveBatch, verifyAccess, listOutputFiles, readJSON };
+  return { saveJSON, saveBatch, saveLabelFile, verifyAccess, listOutputFiles, readJSON };
 })();
 
 window.FsOutput = FsOutput;

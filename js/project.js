@@ -11,8 +11,10 @@ const ProjectConfig = (() => {
   let _config = {
     date: _todayStr(),           // YYYY-MM-DD
     varietas: '',                // e.g. "DAMIMAS"
-    outputDirHandle: null,       // FileSystemDirectoryHandle (File System Access API)
+    outputDirHandle: null,       // FileSystemDirectoryHandle for JSON output
     outputDirName: '',           // display name of the output folder
+    labelsDirHandle: null,       // FileSystemDirectoryHandle for corrected YOLO .txt labels
+    labelsDirName: '',           // display name of the labels output folder
     savedTrees: new Set(),       // set of tree names that have been saved this session
     savedHandles: new Map(),     // treeName → FileSystemFileHandle (for lazy resume)
   };
@@ -39,6 +41,8 @@ const ProjectConfig = (() => {
       varietas: _config.varietas,
       hasOutputDir: !!_config.outputDirHandle,
       outputDirName: _config.outputDirName,
+      hasLabelsDir: !!_config.labelsDirHandle,
+      labelsDirName: _config.labelsDirName,
     };
   }
 
@@ -54,6 +58,10 @@ const ProjectConfig = (() => {
 
   function getOutputDirHandle() {
     return _config.outputDirHandle;
+  }
+
+  function getLabelsDirHandle() {
+    return _config.labelsDirHandle;
   }
 
   /**
@@ -117,6 +125,33 @@ const ProjectConfig = (() => {
     }
   }
 
+  /**
+   * Prompt user to pick a directory where corrected YOLO .txt label files will
+   * be written (kept separate from the dataset's original labels to avoid
+   * destructive overwrites). Optional — leave unset to skip writing .txt.
+   */
+  async function pickLabelsDirectory() {
+    if (!window.showDirectoryPicker) {
+      return false;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      _config.labelsDirHandle = handle;
+      _config.labelsDirName = handle.name;
+      return true;
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.warn('[ProjectConfig] pickLabelsDirectory error:', e);
+      }
+      return false;
+    }
+  }
+
+  function clearLabelsDirectory() {
+    _config.labelsDirHandle = null;
+    _config.labelsDirName = '';
+  }
+
   // ── Save tracking ────────────────────────────────────────────────────────
 
   function markSaved(treeName) {
@@ -145,6 +180,8 @@ const ProjectConfig = (() => {
       varietas: '',
       outputDirHandle: null,
       outputDirName: '',
+      labelsDirHandle: null,
+      labelsDirName: '',
       savedTrees: new Set(),
       savedHandles: new Map(),
     };
@@ -167,9 +204,10 @@ const ProjectConfig = (() => {
 
   return {
     get, setDate, setVarietas,
-    getOutputDirHandle,
+    getOutputDirHandle, getLabelsDirHandle,
     guessVarietas, generateTreeId, treeIdForIndex,
-    pickOutputDirectory, isFileSystemAccessSupported,
+    pickOutputDirectory, pickLabelsDirectory, clearLabelsDirectory,
+    isFileSystemAccessSupported,
     markSaved, isSaved, getSavedCount,
     setSavedHandle, getSavedHandle, clearSavedHandle,
     reset,

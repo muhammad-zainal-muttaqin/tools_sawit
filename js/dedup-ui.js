@@ -53,6 +53,11 @@ const DedupUI = (() => {
 
   let _magEl = null, _magCanvas = null, _magCtx = null;
 
+  // Whether algorithm suggestions are shown on canvas + in the panel.
+  // When false, confirmed links still render; suggested-only bboxes are not
+  // decorated and the suggestion panel shows a hint instead of rows.
+  let _showSuggestions = true;
+
   function _ensureMagnifier() {
     if (_magEl) return;
     _magEl = document.createElement('div');
@@ -198,15 +203,6 @@ const DedupUI = (() => {
     return (link.sideA === sideA && link.sideB === sideB) ||
            (link.sideA === sideB && link.sideB === sideA);
   }
-
-  // ── Pair definitions ───────────────────────────────────────────────────────
-
-  const PAIR_LABELS = [
-    ['Depan', 'Kanan'],
-    ['Kanan', 'Belakang'],
-    ['Belakang', 'Kiri'],
-    ['Kiri', 'Depan'],
-  ];
 
   // ── Bbox summary helper ────────────────────────────────────────────────────
 
@@ -394,17 +390,19 @@ const DedupUI = (() => {
       if (link.sideB === sideIndex) map.set(link.bboxIdB, { color, num });
     });
 
-    // Suggested links (show after confirmed)
-    pairSuggestions.forEach((sug, i) => {
-      const color = _colorForSuggest(pairLinks.length + i);
-      const num = pairLinks.length + i + 1;
-      if (sug.sideA === sideIndex && !map.has(sug.bboxIdA)) {
-        map.set(sug.bboxIdA, { color, num, suggested: true });
-      }
-      if (sug.sideB === sideIndex && !map.has(sug.bboxIdB)) {
-        map.set(sug.bboxIdB, { color, num, suggested: true });
-      }
-    });
+    // Suggested links (show after confirmed) — only when the suggestion layer is visible.
+    if (_showSuggestions) {
+      pairSuggestions.forEach((sug, i) => {
+        const color = _colorForSuggest(pairLinks.length + i);
+        const num = pairLinks.length + i + 1;
+        if (sug.sideA === sideIndex && !map.has(sug.bboxIdA)) {
+          map.set(sug.bboxIdA, { color, num, suggested: true });
+        }
+        if (sug.sideB === sideIndex && !map.has(sug.bboxIdB)) {
+          map.set(sug.bboxIdB, { color, num, suggested: true });
+        }
+      });
+    }
 
     // Cross-pair indicator for boxes linked in another pair.
     session.confirmedLinks.forEach(link => {
@@ -483,6 +481,11 @@ const DedupUI = (() => {
 
     const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
 
+    if (!_showSuggestions) {
+      _suggEl.innerHTML = '<p class="dedup-empty">Saran otomatis disembunyikan.</p>';
+      return;
+    }
+
     if (suggestions.length === 0) {
       _suggEl.innerHTML = '<p class="dedup-empty">Tidak ada saran.</p>';
       return;
@@ -516,12 +519,17 @@ const DedupUI = (() => {
       badge.style.background = color;
       badge.textContent = linkOffset + i + 1;
 
+      const main = document.createElement('div');
+      main.className = 'dedup-suggestion-main';
+
       const label = document.createElement('span');
       label.className = 'dedup-suggestion-label';
       const scoreStr = (sug.score * 100).toFixed(0);
       const mismatch = bA.className !== bB.className;
-      // Display LEFT (sideB) first, then RIGHT (sideA) to match visual layout
       label.textContent = `${bB.className} (${TREE_SIDE_LABELS[iB]}) ↔ ${bA.className} (${TREE_SIDE_LABELS[iA]}) — ${scoreStr}%${mismatch ? ' ⚠' : ''}`;
+      main.appendChild(label);
+
+      if (sug.signals) main.appendChild(_buildSignalBadges(sug.signals));
 
       const terima = document.createElement('button');
       terima.className = 'btn btn-xs btn-success';
@@ -533,9 +541,32 @@ const DedupUI = (() => {
       tolak.textContent = 'Tolak';
       tolak.onclick = () => { ActiveSession.rejectLink(sug.linkId); _renderPair(); };
 
-      row.append(badge, label, terima, tolak);
+      row.append(badge, main, terima, tolak);
       _suggEl.appendChild(row);
     });
+  }
+
+  // Build small colored badges showing the per-signal breakdown of a score.
+  // Green ≥ 0.75, amber 0.50-0.75, red < 0.50. Class multiplier is shown
+  // separately (green = same class, amber = adjacent, red = far).
+  function _buildSignalBadges(signals) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dedup-signal-badges';
+    const entries = [
+      ['seam', signals.seam, 'Kedekatan ke garis bagi (0 = tengah, 1 = mepet seam)'],
+      ['vert', signals.vert, 'Kecocokan ketinggian (centroid Y)'],
+      ['size', signals.size, 'Kemiripan ukuran + aspect ratio'],
+      ['cls',  signals.cls,  'Pengali berbasis kelas (1 = sama, 0.85 = ±1 grade, 0.5 = jauh)'],
+    ];
+    for (const [key, val, tip] of entries) {
+      if (val == null) continue;
+      const span = document.createElement('span');
+      span.className = 'sig-badge sig-' + (val >= 0.75 ? 'hi' : val >= 0.5 ? 'mid' : 'lo');
+      span.textContent = `${key} ${val.toFixed(2)}`;
+      span.title = tip;
+      wrap.appendChild(span);
+    }
+    return wrap;
   }
 
   // ── Confirmed links panel ──────────────────────────────────────────────────
@@ -826,10 +857,8 @@ const DedupUI = (() => {
     if (!_editSelection) return false;
     const classId = parseInt(key, 10) - 1;
     if (classId < 0 || classId > 3) return false;
-    ActiveSession.updateBbox(_editSelection.sideIdx, _editSelection.bboxId, {
-      classId,
-      className: CLASS_MAP[classId],
-    });
+    // Propagate to all confirmed-cluster members so paired bboxes stay class-consistent.
+    ActiveSession.setBboxClass(_editSelection.sideIdx, _editSelection.bboxId, classId);
     _renderPair();
     return true;
   }
@@ -867,6 +896,13 @@ const DedupUI = (() => {
     if (!_magEnabled) _hideMagnifier();
   }
 
+  function getSuggestionsVisible() { return _showSuggestions; }
+
+  function setSuggestionsVisible(v) {
+    _showSuggestions = !!v;
+    _renderPair();
+  }
+
   function showPair(pairIndex, direction = null) {
     _pendingLeft = null;
     _editSelection = null;
@@ -898,13 +934,19 @@ const DedupUI = (() => {
     _hideMagnifier();
   }
 
-  function getPairLabels() { return PAIR_LABELS; }
+  function getPairLabels() {
+    return (window.ADJACENT_PAIRS || []).map(([a, b]) => [
+      (window.TREE_SIDE_LABELS || [])[a] || `Sisi ${a + 1}`,
+      (window.TREE_SIDE_LABELS || [])[b] || `Sisi ${b + 1}`,
+    ]);
+  }
   function getCurrentPair() { return _pairIndex; }
 
   return {
     init, showPair, refresh, destroy, getPairLabels, getCurrentPair,
     changeSelectedClass, deleteSelected, getSelectedInfo,
     getMagnifierEnabled, setMagnifierEnabled,
+    getSuggestionsVisible, setSuggestionsVisible,
   };
 })();
 
