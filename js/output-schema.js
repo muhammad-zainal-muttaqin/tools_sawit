@@ -107,11 +107,25 @@ const OutputSchema = (() => {
   }
 
   /**
+   * Derive variety from a tree_name (e.g. "DAMIMAS_A21B_0001" → "DAMIMAS",
+   * "LONSUM_A21A_0099" → "LONSUM"). Falls back to projectCfg.varietas, then
+   * "UNKNOWN". Per-tree derivation prevents the legacy bug where every export
+   * inherited the project-level varietas regardless of actual tree.
+   */
+  function _deriveVarietasFromTreeName(treeName, fallback) {
+    if (typeof treeName === 'string') {
+      const m = treeName.match(/^([A-Za-z]+)_/);
+      if (m) return m[1].toUpperCase();
+    }
+    return (fallback || 'UNKNOWN').toUpperCase();
+  }
+
+  /**
    * Generate the full output JSON for a tree.
    *
    * @param {object} session      — ActiveSession.get()
    * @param {object} result       — Results.compute(session) output
-   * @param {string} treeId       — from ProjectConfig.treeIdForIndex()
+   * @param {string} treeId       — legacy session counter (kept as metadata.session_id)
    * @param {object} projectCfg   — ProjectConfig.get()
    * @param {object} datasetTree  — DatasetManager.getTree() (for original filenames)
    * @returns {object}            — the output JSON object
@@ -243,15 +257,20 @@ const OutputSchema = (() => {
     }
 
     // ── Full output ────────────────────────────────────────────────────────
+    // tree_id is now canonical = tree_name (per-tree, idempoten across sessions).
+    // The legacy session counter (e.g. "20260422-DAMIMAS-001") is preserved in
+    // metadata.session_id for traceability but no longer drives filenames.
+    const varietas = _deriveVarietasFromTreeName(session.treeName, projectCfg && projectCfg.varietas);
     return {
-      version: 1,
-      tree_id: treeId,
+      version: 2,
+      tree_id: session.treeName,
       tree_name: session.treeName,
       split: session.split,
       metadata: {
         date: projectCfg.date,
-        varietas: projectCfg.varietas,
-        number: parseInt(treeId.split('-').pop(), 10) || 0,
+        varietas,
+        session_id: treeId || null,
+        number: treeId ? (parseInt(String(treeId).split('-').pop(), 10) || 0) : 0,
         generated_at: new Date().toISOString(),
       },
       images,

@@ -328,20 +328,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Auto-save & Output ──────────────────────────────────────────────────
 
   /**
-   * Auto-save the current tree's output JSON if it has been worked on.
-   * Called before navigating away from a tree.
+   * Auto-save the current tree's output JSON + corrected TXT before navigating.
+   * Always writes — even if the annotator made no edits — so every visited tree
+   * leaves an Output JSON and Output TXT on disk. This makes resume rules
+   * deterministic (Output TXT exists ⇔ tree was visited).
    */
   async function _autoSaveCurrentTree() {
     if (_autoSaving) return;
     const session = ActiveSession.get();
     if (!session) return;
-
-    // Only auto-save if there are confirmed links OR the session is dirty
-    const hasWork = session.confirmedLinks.length > 0 || ActiveSession.isDirty();
-    if (!hasWork) return;
-
-    // Already saved this tree AND no new edits since? Skip.
-    if (ProjectConfig.isSaved(session.treeName) && !ActiveSession.isDirty()) return;
 
     // Force user to resolve class mismatches before persisting. If they cancel,
     // leave the session dirty — the prompt will return on the next save attempt.
@@ -353,7 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     _autoSaving = true;
     try {
-      await _saveCurrentTreeOutput();
+      await _saveCurrentTreeOutput({ allowDirty: true });
     } finally {
       _autoSaving = false;
     }
@@ -365,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function _saveCurrentTreeOutput(opts = {}) {
     const recompute = opts.recompute !== false;
     const allowDirty = !!opts.allowDirty;
+    const markConfirmed = opts.markConfirmed === true;
     const session = ActiveSession.get();
     if (!session) return;
 
@@ -385,13 +381,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const datasetTree = DatasetManager.getTree();
     const outputJson = OutputSchema.generate(session, result, treeId, projectCfg, datasetTree);
 
-    // Save to output folder or download
-    const filename = `${treeId}__${session.treeName}.json`;
+    // Save to output folder or download.
+    // Filename is canonical (tree_name only) so re-saves overwrite in place
+    // instead of producing duplicates with shifting tree_id counters.
+    const filename = `${session.treeName}.json`;
     const saveResult = await FsOutput.saveJSON(filename, outputJson);
 
     if (saveResult.ok) {
       if (ActiveSession.markClean) ActiveSession.markClean();
-      ProjectConfig.markSaved(session.treeName);
+      // Only flip the "confirmed done" flag (green checkmark + counter) when
+      // the user explicitly clicked "Hitung". Auto-save on navigate writes
+      // bytes to disk but must not imply human review.
+      if (markConfirmed) {
+        ProjectConfig.markSaved(session.treeName);
+      }
       _updateSaveStatus();
       _updateSaveCounter();
       _refreshTreeSelectOption(DatasetManager.getIndex());
@@ -479,10 +482,10 @@ document.addEventListener('DOMContentLoaded', () => {
     treeSaveStatus.classList.remove('hidden');
     treeSaveStatus.classList.toggle('save-status--saved', saved);
     treeSaveStatus.classList.toggle('save-status--unsaved', !saved);
-    treeSaveStatus.textContent = saved ? 'Tersimpan' : 'Belum disimpan';
+    treeSaveStatus.textContent = saved ? 'Selesai' : 'Belum dikonfirmasi';
     treeSaveStatus.title = saved
-      ? `Output ${ActiveSession.getTreeId()}.json telah disimpan`
-      : 'Belum disimpan — akan auto-save saat pindah pohon';
+      ? `Sudah klik Hitung — output ${session.treeName}.json terkonfirmasi`
+      : 'Auto-save jalan setiap navigasi. Klik "Hitung" untuk menandai pohon ini selesai.';
   }
 
   function _updateSaveCounter() {
@@ -491,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saved = ProjectConfig.getSavedCount();
     if (saved > 0) {
       saveCounter.classList.remove('hidden');
-      saveCounter.textContent = `${saved}/${total} tersimpan`;
+      saveCounter.textContent = `${saved}/${total} selesai`;
     } else {
       saveCounter.classList.add('hidden');
     }
@@ -953,8 +956,9 @@ document.addEventListener('DOMContentLoaded', () => {
     Results.render(_lastResult, resultsContainer);
     exportButtons.classList.remove('hidden');
 
-    // Also auto-save output
-    await _saveCurrentTreeOutput({ recompute: false, allowDirty: true });
+    // Also auto-save output. markConfirmed=true → tree gets the green checkmark
+    // (annotator explicitly confirmed dedup is done).
+    await _saveCurrentTreeOutput({ recompute: false, allowDirty: true, markConfirmed: true });
   });
 
   btnExportYolo.addEventListener('click', () => {

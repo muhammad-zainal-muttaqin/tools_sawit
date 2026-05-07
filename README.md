@@ -23,37 +23,58 @@ Konfigurasi Project (tanggal, varietas, folder output)
 Tab 1: Koreksi Anotasi    → edit bbox per sisi (draw / move / resize / delete / change class)
   ↓
 Tab 2: Deduplikasi        → tautkan bbox lintas sisi bersebelahan (manual + saran otomatis)
+                          → klik "Hitung & Tandai Selesai" saat selesai (centang hijau)
   ↓
-Tab 3: Hasil              → hitung tandan unik + simpan JSON output
+Tab 3: Hasil              → ringkasan tandan unik + tombol export
   ↓
-Auto-save saat pindah pohon atau tekan "Hitung"
+Auto-save saat pindah pohon (tulis Output JSON + TXT, TANPA centang hijau).
+Centang hijau / status "Selesai" hanya muncul setelah klik "Hitung" eksplisit.
 ```
 
 ## Format Dataset
 
 ```
 {root}/images/{split}/{STEM}_{N}.jpg
-{root}/labels/{split}/{STEM}_{N}.txt
+{root}/labels/{split}/{STEM}_{N}.txt           ← prediksi original (read-only initial)
+{root}/Output TXT/{split}/{STEM}_{N}.txt       ← koreksi annotator (override saat resume)
+{root}/Output JSON/{tree_name}.json            ← GT pohon (resume-source)
 ```
 
 - `STEM` = nama pohon (mis. `DAMIMAS_A21B_0003`).
 - `_{N}` = nomor sisi (1-based). Dataset umumnya 4 atau 8 sisi; penamaan di UI selalu "Sisi 1 … Sisi N" tanpa arah mata angin (sesuai masukan dosen — pohon tidak punya depan/belakang dan protokol capture tidak selalu align ke arah real).
 - Format label = YOLO (`class cx cy w h` ternormalisasi).
 
+**Precedence label saat load.** Untuk tiap `STEM_{N}.txt`, app pilih: `Output TXT/` jika ada → fallback ke `labels/`. Asumsi: kalau annotator sudah pernah simpan koreksi, file di `Output TXT/` adalah state final (bahkan jika identik dengan original — `_saveCorrectedLabels` selalu menulis tiap kali "Hitung" ditekan, mirroring perilaku Output JSON). Trees tanpa Output TXT pakai original `labels/`.
+
+**Setup picker.** Saat load:
+1. **Folder dataset** → pilih `{root}/` (mengandung `images/`, `labels/`, opsional `Output TXT/`)
+2. **Folder Output JSON** → pilih `{root}/Output JSON/` agar resume otomatis
+3. **Folder Output Labels** → pilih `{root}/Output TXT/` agar koreksi tersimpan di tempat yang sama saat dimuat ulang
+
 Class map (`js/yolo-io.js`): `0=B1, 1=B2, 2=B3, 3=B4` (skema internal app menggunakan 1-indexed `B1..B4`).
 
 ## Output JSON
 
-Per-pohon, disimpan ke folder output sebagai `{tree_id}__{tree_name}.json`. Tree ID di-generate otomatis: `YYYYMMDD-VARIETAS-NNN` (mis. `20260416-DAMIMAS-001`).
+Per-pohon, disimpan ke folder output sebagai `{tree_name}.json` (mis. `DAMIMAS_A21B_0001.json`). Sejak schema **v2** filename hanya pakai `tree_name` (kanonik) supaya save berulang **overwrite di tempat**, tidak menumpuk file duplikat dengan counter sesi yang bergeser.
 
 Isi (lihat `js/output-schema.js`):
 
-- `tree_id`, `tree_name`, `split`, `metadata`
+- `version: 2` — schema version
+- `tree_id` = `tree_name` (kanonik per-pohon, idempoten antar sesi)
+- `tree_name`, `split`, `metadata`
+- `metadata.varietas` di-derive otomatis dari prefix `tree_name` (`DAMIMAS_*` → `DAMIMAS`, `LONSUM_*` → `LONSUM`) — bukan dari konfigurasi project. Bug v1 dimana semua pohon mendapat varietas project-level meski sebenarnya beda jenis sudah diperbaiki.
+- `metadata.session_id` — counter `YYYYMMDD-VARIETAS-NNN` lama (untuk traceability sesi anotasi, tidak masuk filename)
 - `images` — per sisi: filename, ukuran, dan anotasi dengan koordinat YOLO **dan** pixel
 - `bunches` — tandan unik hasil clustering, dengan referensi balik ke `side + box_index`
 - `summary` — total unik, total mentah, dedup count, breakdown per kelas dan per sisi
 
 Penyimpanan via **File System Access API** (Chrome / Edge). Browser lain otomatis fallback ke download manual.
+
+Resume otomatis mengenali file v1 (`{tree_id}__{tree_name}.json`) **dan** v2 (`{tree_name}.json`); kalau dua-duanya ada untuk pohon yang sama, v2 dipakai.
+
+### Filter file sistem
+
+Saat memuat folder, `__MACOSX/`, `.DS_Store`, `._*`, `Thumbs.db`, dan `desktop.ini` di-skip otomatis (diloggling jumlahnya di console). Hindari kerusakan deteksi sisi karena artifact zip macOS atau metadata Windows.
 
 ## Resume Sesi
 

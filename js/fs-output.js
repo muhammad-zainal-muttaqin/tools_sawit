@@ -140,8 +140,14 @@ const FsOutput = (() => {
 
   /**
    * List all output JSON files in the output directory and map them by tree name.
-   * Filename pattern emitted by the app is `${treeId}__${treeName}.json`.
-   * Files that don't match are skipped silently.
+   *
+   * Supports two filename patterns:
+   *   - v2 canonical:  `${treeName}.json`  (e.g. "DAMIMAS_A21B_0001.json")
+   *   - v1 legacy:     `${treeId}__${treeName}.json` (e.g. "20260422-DAMIMAS-001__DAMIMAS_A21B_0001.json")
+   *
+   * The canonical key for the returned map is the tree_name (not the legacy
+   * tree_id) so resume logic is idempotent regardless of when the file was
+   * written. Files that don't match either pattern are skipped silently.
    *
    * @returns {Promise<Map<string, FileSystemFileHandle>>}
    */
@@ -152,15 +158,29 @@ const FsOutput = (() => {
     if (!ok) return new Map();
 
     const map = new Map();
-    // Capture everything after the first "__" up to ".json"
-    const re = /^.+?__(.+)\.json$/i;
+    const sourceLegacy = new Map(); // key → true if the entry came from a legacy filename
+    const reLegacy = /^.+?__(.+)\.json$/i;          // v1 with double-prefix
+    const reTreeName = /^([A-Za-z]+_.+?)\.json$/i;  // v2 canonical (varietas-prefixed)
     try {
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind !== 'file') continue;
         if (!name.toLowerCase().endsWith('.json')) continue;
-        const m = name.match(re);
-        if (!m) continue;
-        map.set(m[1], handle);
+        let key = null;
+        let isLegacy = false;
+        const mLegacy = name.match(reLegacy);
+        if (mLegacy) {
+          key = mLegacy[1];
+          isLegacy = true;
+        } else {
+          const mNew = name.match(reTreeName);
+          if (mNew) key = mNew[1];
+        }
+        if (!key) continue;
+        // Prefer the v2 canonical filename when both exist for the same tree.
+        if (!map.has(key) || (sourceLegacy.get(key) && !isLegacy)) {
+          map.set(key, handle);
+          sourceLegacy.set(key, isLegacy);
+        }
       }
     } catch (e) {
       console.warn('[FsOutput] listOutputFiles error:', e);

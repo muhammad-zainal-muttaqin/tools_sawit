@@ -6,11 +6,17 @@
  *
  * Expected folder structure:
  *   {root}/images/{split}/{stem}_{N}.jpg
- *   {root}/labels/{split}/{stem}_{N}.txt
+ *   {root}/labels/{split}/{stem}_{N}.txt           (original predictions)
+ *   {root}/Output TXT/{split}/{stem}_{N}.txt       (annotator's corrections, optional)
+ *   {root}/Output JSON/{tree_name}.json            (saved tree-level GT)
  *
  * Where stem = e.g. DAMIMAS_A21B_0004, and _{N} is the side number (1..99).
  * Number of sides per tree is derived from the max side number observed
  * for that tree (so 4-sided and 8-sided trees can coexist in one dataset).
+ *
+ * Label resolution: when both `labels/` and `Output TXT/` contain the same
+ * stem, the Output TXT version wins. This lets annotators resume from their
+ * own corrections instead of falling back to the original predictions.
  */
 const DatasetManager = (() => {
   let _trees = [];
@@ -51,17 +57,41 @@ const DatasetManager = (() => {
   }
 
   /**
+   * Skip OS metadata / archive artifacts that webkitdirectory exposes.
+   * macOS: __MACOSX/, .DS_Store, ._foo.
+   * Windows: Thumbs.db, desktop.ini.
+   */
+  function _isJunkFile(relPath, name) {
+    if (/(^|[/\\])__MACOSX([/\\]|$)/.test(relPath)) return true;
+    if (name === '.DS_Store') return true;
+    if (name.startsWith('._')) return true;
+    if (/^thumbs\.db$/i.test(name)) return true;
+    if (/^desktop\.ini$/i.test(name)) return true;
+    return false;
+  }
+
+  /**
    * Load a FileList from <input webkitdirectory> and build tree list.
    * @param {FileList} fileList
    */
   function load(fileList) {
-    // Separate images and labels by stem
+    // Separate images and labels by stem.
+    // For labels, track source priority so `Output TXT/` overrides `labels/`
+    // when both exist (annotator's corrections win over original predictions).
     const imagesByStem = new Map(); // stem → { file, split }
-    const labelsByStem = new Map(); // stem → { file, split }
+    const labelsByStem = new Map(); // stem → { file, split, source }
+    let _junkSkipped = 0;
+
+    // Source rank: higher wins. 2 = Output TXT (correction), 1 = labels/ (original).
+    function _labelSource(rel) {
+      if (/(^|[/\\])Output TXT([/\\])/i.test(rel)) return 2;
+      return 1;
+    }
 
     for (const file of fileList) {
       const rel  = file.webkitRelativePath || file.name;
       const name = file.name;
+      if (_isJunkFile(rel, name)) { _junkSkipped++; continue; }
       const stem = _stem(name);
       const ext  = name.split('.').pop().toLowerCase();
       const split = _detectSplit(rel);
@@ -69,7 +99,14 @@ const DatasetManager = (() => {
       if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
         imagesByStem.set(stem, { file, split });
       } else if (ext === 'txt') {
-        labelsByStem.set(stem, { file, split });
+        // Skip txt files that aren't under labels/ or Output TXT/ (e.g. data.yaml siblings)
+        const isLabelPath = /(^|[/\\])(labels|Output TXT)([/\\])/i.test(rel);
+        if (!isLabelPath) continue;
+        const source = _labelSource(rel);
+        const existing = labelsByStem.get(stem);
+        if (!existing || source >= existing.source) {
+          labelsByStem.set(stem, { file, split, source });
+        }
       }
     }
 
@@ -116,6 +153,9 @@ const DatasetManager = (() => {
       });
 
     _currentIndex = 0;
+    if (_junkSkipped > 0) {
+      console.log('[Dataset] Skipped', _junkSkipped, 'junk file(s) (__MACOSX/.DS_Store/Thumbs.db/etc.)');
+    }
     return _trees;
   }
 
