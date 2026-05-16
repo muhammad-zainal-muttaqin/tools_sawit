@@ -27,12 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Project config modal elements
   const modalProjectCfg  = document.getElementById('modal-project-config');
-  const cfgDate          = document.getElementById('cfg-date');
-  const cfgVarietas      = document.getElementById('cfg-varietas');
   const cfgOutputDirName = document.getElementById('cfg-output-dir-name');
   const cfgLabelsDirName = document.getElementById('cfg-labels-dir-name');
   const cfgFsWarning     = document.getElementById('cfg-fs-warning');
-  const cfgPreviewId     = document.getElementById('cfg-preview-id');
   const btnPickOutputDir = document.getElementById('btn-pick-output-dir');
   const btnPickLabelsDir = document.getElementById('btn-pick-labels-dir');
   const btnClearLabelsDir= document.getElementById('btn-clear-labels-dir');
@@ -69,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const fileInfo         = document.getElementById('file-info');
 
-  const btnHitung        = document.getElementById('btn-hitung');
+  const btnCompute       = document.getElementById('btn-compute');
   const exportButtons    = document.getElementById('export-buttons');
   const btnExportYolo    = document.getElementById('btn-export-yolo');
   const btnExportJSON    = document.getElementById('btn-export-json');
@@ -85,6 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let _lastResult = null;
   let _pendingTrees = null;  // trees waiting for config modal confirmation
   let _autoSaving = false;   // prevent re-entrant auto-save
+  let _busy = false;
+  let _loadSeq = 0;
+  let _opQueue = Promise.resolve();
+  const _savedSnapshotSignatures = new Map();
 
   // ── Dataset loading ────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!files || files.length === 0) return;
     const trees = DatasetManager.load(files);
     if (trees.length === 0) {
-      alert('Tidak ada tree yang ditemukan. Pastikan folder berisi file gambar dengan format NAMA_1.jpg s/d NAMA_N.jpg (N = jumlah sisi, umumnya 4 atau 8)');
+      alert('No trees found. Make sure the folder contains image files named NAME_1.jpg through NAME_N.jpg (N is the side count, usually 4 or 8).');
       return;
     }
     // Debug: summary of detected side counts across trees
@@ -102,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const n = (t.sides || []).length;
       sideHistogram[n] = (sideHistogram[n] || 0) + 1;
     });
-    console.log('[Dataset] Loaded', trees.length, 'tree(s). Sisi histogram:', sideHistogram);
+    console.log('[Dataset] Loaded', trees.length, 'tree(s). Side histogram:', sideHistogram);
 
     // Store trees and show config modal before proceeding
     _pendingTrees = trees;
@@ -115,17 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function _showProjectConfigModal(trees) {
     ProjectConfig.reset();
 
-    // Auto-fill date
-    cfgDate.value = ProjectConfig.get().date;
-
-    // Auto-detect varietas from first tree name
-    const guessed = trees.length > 0 ? ProjectConfig.guessVarietas(trees[0].name) : '';
-    cfgVarietas.value = guessed;
-    ProjectConfig.setVarietas(guessed);
-
-    // Preview tree ID
-    _updateCfgPreview();
-
     // FS API warning
     if (!ProjectConfig.isFileSystemAccessSupported()) {
       cfgFsWarning.style.display = '';
@@ -137,19 +127,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnPickLabelsDir) btnPickLabelsDir.disabled = false;
     }
 
-    cfgOutputDirName.textContent = 'Belum dipilih';
-    if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Belum dipilih';
+    cfgOutputDirName.textContent = 'Not selected';
+    if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Not selected';
     modalProjectCfg.classList.remove('hidden');
   }
-
-  function _updateCfgPreview() {
-    ProjectConfig.setDate(cfgDate.value);
-    ProjectConfig.setVarietas(cfgVarietas.value);
-    cfgPreviewId.textContent = ProjectConfig.treeIdForIndex(0);
-  }
-
-  cfgDate.addEventListener('input', _updateCfgPreview);
-  cfgVarietas.addEventListener('input', _updateCfgPreview);
 
   btnPickOutputDir.addEventListener('click', async () => {
     const ok = await ProjectConfig.pickOutputDirectory();
@@ -169,26 +150,28 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnClearLabelsDir) {
     btnClearLabelsDir.addEventListener('click', () => {
       ProjectConfig.clearLabelsDirectory();
-      if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Belum dipilih';
+      if (cfgLabelsDirName) cfgLabelsDirName.textContent = 'Not selected';
     });
   }
 
   btnCfgConfirm.addEventListener('click', async () => {
-    // Apply config
-    ProjectConfig.setDate(cfgDate.value);
-    ProjectConfig.setVarietas(cfgVarietas.value);
     modalProjectCfg.classList.add('hidden');
 
     if (!_pendingTrees) return;
 
     // Discover prior saves before rendering the dropdown so ✓ marks appear immediately.
     const matched = await _scanOutputDirectory();
-    if (matched > 0) _showToast(`Memulihkan ${matched} pohon dari folder output`, 'success');
+    if (matched > 0) _showToast(`Restored ${matched} tree(s) from the output folder`, 'success');
 
     _populateTreeSelect(_pendingTrees);
     treeNav.classList.remove('hidden');
     _updateSaveCounter();
-    _loadCurrentTree();
+    _setBusy(true, 'Loading...');
+    try {
+      await _loadCurrentTree();
+    } finally {
+      _setBusy(false);
+    }
     _pendingTrees = null;
   });
 
@@ -226,21 +209,100 @@ document.addEventListener('DOMContentLoaded', () => {
     if (treeSplit) treeSplit.textContent = tree ? (tree.split || 'unknown') : '';
     if (treeSides) {
       const nSides = tree && tree.sides ? tree.sides.length : 0;
-      treeSides.textContent = nSides ? `${nSides} sisi` : '';
+      treeSides.textContent = nSides ? `${nSides} views` : '';
     }
   }
 
+  function _setBusy(flag, label = 'Working...') {
+    _busy = !!flag;
+    const disabled = !!flag;
+    for (const el of [btnPrevTree, btnNextTree, treeSelect, btnCompute, btnSaveOutput]) {
+      if (el) el.disabled = disabled;
+    }
+    if (disabled && treeSaveStatus) {
+      treeSaveStatus.classList.remove('hidden');
+      treeSaveStatus.textContent = label;
+      treeSaveStatus.title = label;
+    } else {
+      _updateSaveStatus();
+    }
+  }
+
+  function _enqueueOperation(fn) {
+    _opQueue = _opQueue.catch(() => {}).then(fn);
+    return _opQueue;
+  }
+
+  function _cloneSessionSnapshot() {
+    const snapshot = ActiveSession.toJSON ? ActiveSession.toJSON() : null;
+    return snapshot ? JSON.parse(JSON.stringify(snapshot)) : null;
+  }
+
+  function _snapshotSignature(snapshot) {
+    return JSON.stringify({
+      treeName: snapshot.treeName,
+      split: snapshot.split,
+      sides: snapshot.sides,
+      confirmedLinks: snapshot.confirmedLinks,
+    });
+  }
+
+  function _treeStemFromFilename(filename) {
+    return String(filename || '').replace(/\.[^.]+$/, '').replace(/_[1-9]\d?$/, '');
+  }
+
+  function _fileStem(filename) {
+    return String(filename || '').replace(/\.[^.]+$/, '');
+  }
+
+  function _getDatasetTreeByName(treeName) {
+    const idx = DatasetManager.findByName(treeName);
+    if (idx < 0) return null;
+    return DatasetManager.getTrees()[idx] || null;
+  }
+
+  function _validateOutputAgainstTree(outputJson, datasetTree) {
+    if (!outputJson || !datasetTree) throw new Error('Missing output or dataset tree.');
+    if (outputJson.tree_name !== datasetTree.name) {
+      throw new Error(`Output tree mismatch: ${outputJson.tree_name} != ${datasetTree.name}`);
+    }
+    for (const [sideKey, imageInfo] of Object.entries(outputJson.images || {})) {
+      const imageTree = _treeStemFromFilename(imageInfo.filename);
+      const labelTree = _treeStemFromFilename(imageInfo.label_file);
+      if (imageTree !== outputJson.tree_name) {
+        throw new Error(`${sideKey} image belongs to ${imageTree}, not ${outputJson.tree_name}.`);
+      }
+      if (labelTree !== outputJson.tree_name) {
+        throw new Error(`${sideKey} label belongs to ${labelTree}, not ${outputJson.tree_name}.`);
+      }
+      const expectedSideStem = `${outputJson.tree_name}_${imageInfo.side_index + 1}`;
+      if (_fileStem(imageInfo.filename) !== expectedSideStem) {
+        throw new Error(`${sideKey} image side mismatch: expected ${expectedSideStem}.`);
+      }
+      if (_fileStem(imageInfo.label_file) !== expectedSideStem) {
+        throw new Error(`${sideKey} label side mismatch: expected ${expectedSideStem}.`);
+      }
+      if ((imageInfo.annotations || []).length !== imageInfo.bbox_count) {
+        throw new Error(`${sideKey} annotation count does not match bbox_count.`);
+      }
+    }
+  }
+
+  function _countYoloLines(content) {
+    if (!content || !content.trim()) return 0;
+    return content.trim().split(/\r?\n/).filter(line => line.trim()).length;
+  }
+
   async function _loadCurrentTree() {
+    const loadToken = ++_loadSeq;
     const tree = DatasetManager.getTree();
     if (!tree) return;
     emptyState.classList.add('hidden');
     editorArea.classList.remove('hidden');
 
     await ActiveSession.loadTree(tree);
+    if (loadToken !== _loadSeq || DatasetManager.getTree() !== tree) return;
 
-    // Assign tree ID from ProjectConfig
-    const treeId = ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
-    ActiveSession.setTreeId(treeId);
 
     // Lazy resume from output JSON if we previously saved this tree.
     let resumed = false;
@@ -248,18 +310,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (savedHandle) {
       try {
         const outputJson = await FsOutput.readJSON(savedHandle);
+        if (loadToken !== _loadSeq || DatasetManager.getTree() !== tree) return;
         if (outputJson && outputJson.images && outputJson.bunches) {
+          _validateOutputAgainstTree(outputJson, tree);
           const sessionJson = OutputSchema.toSessionJSON(outputJson);
           await ActiveSession.fromJSON(sessionJson, tree);
-          ActiveSession.setTreeId(treeId);
-          resumed = true;
-        }
+            if (loadToken !== _loadSeq || DatasetManager.getTree() !== tree) return;
+            resumed = true;
+          }
       } catch (e) {
         console.warn('[Resume] failed for', tree.name, e);
       }
     }
 
-    console.log('[Tree]', tree.name, '→ ID:', treeId, '→', tree.sides.length, 'sisi, pairs:', (window.ADJACENT_PAIRS || []).length, resumed ? '(resumed)' : '');
+    console.log('[Tree]', tree.name, '->', tree.sides.length, 'sides, pairs:', (window.ADJACENT_PAIRS || []).length, resumed ? '(resumed)' : '');
     _lastResult = resumed ? Results.compute(ActiveSession.get()) : null;
     if (resumed) {
       Results.render(_lastResult, resultsContainer);
@@ -281,19 +345,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Refresh dedup if that tab is visible
     if (_activeTab() === 'dedup') _initDedup();
-    if (_activeTab() === 'hasil' && !resumed) { resultsContainer.innerHTML = ''; }
+    if (_activeTab() === 'results' && !resumed) { resultsContainer.innerHTML = ''; }
   }
 
   // ── Tree navigation (with auto-save) ────────────────────────────────────
 
   async function _navigateTree(action) {
-    // Auto-save current tree before navigating
-    await _autoSaveCurrentTree();
-    let ok = false;
-    if (action === 'prev') ok = DatasetManager.prev();
-    else if (action === 'next') ok = DatasetManager.next();
-    else if (typeof action === 'number') ok = DatasetManager.goTo(action);
-    if (ok) _loadCurrentTree();
+    if (_busy) return Promise.resolve();
+    return _enqueueOperation(async () => {
+      _setBusy(true, 'Saving...');
+      const beforeIdx = DatasetManager.getIndex();
+      try {
+        const saved = await _autoSaveCurrentTree();
+        if (saved === false) return;
+
+        let ok = false;
+        if (action === 'prev') ok = DatasetManager.prev();
+        else if (action === 'next') ok = DatasetManager.next();
+        else if (typeof action === 'number') ok = DatasetManager.goTo(action);
+        if (!ok) {
+          treeSelect.value = DatasetManager.getIndex();
+          return;
+        }
+
+        _setBusy(true, 'Loading...');
+        await _loadCurrentTree();
+      } catch (e) {
+        console.error('[Navigation] failed:', e);
+        _showToast(`Navigation failed: ${e.message}`, 'error');
+        DatasetManager.goTo(beforeIdx);
+        treeSelect.value = DatasetManager.getIndex();
+      } finally {
+        _setBusy(false);
+      }
+    });
   }
 
   btnPrevTree.addEventListener('click', () => _navigateTree('prev'));
@@ -334,21 +419,33 @@ document.addEventListener('DOMContentLoaded', () => {
    * deterministic (Output TXT exists ⇔ tree was visited).
    */
   async function _autoSaveCurrentTree() {
-    if (_autoSaving) return;
-    const session = ActiveSession.get();
-    if (!session) return;
+    if (_autoSaving) return true;
+    const snapshot = _cloneSessionSnapshot();
+    if (!snapshot) return true;
+    const signature = _snapshotSignature(snapshot);
+    if (!ActiveSession.isDirty() && _savedSnapshotSignatures.get(snapshot.treeName) === signature) {
+      return true;
+    }
+    if (!ActiveSession.isDirty() && !_savedSnapshotSignatures.has(snapshot.treeName)) {
+      return true;
+    }
+    if (!ProjectConfig.getOutputDirHandle()) {
+      _showToast('Auto-save skipped: choose an output JSON folder first.', 'info');
+      return true;
+    }
 
     // Force user to resolve class mismatches before persisting. If they cancel,
     // leave the session dirty — the prompt will return on the next save attempt.
     const ok = await _resolveMismatchesIfAny();
     if (!ok) {
-      _showToast('Auto-simpan ditunda: resolusi kelas belum selesai.', 'info');
-      return;
+      _showToast('Auto-save postponed: class mismatches are not resolved yet.', 'info');
+      return false;
     }
 
     _autoSaving = true;
     try {
-      await _saveCurrentTreeOutput({ allowDirty: true });
+      await _saveCurrentTreeOutput({ allowDirty: true, snapshot, allowDownload: false, silent: true });
+      return true;
     } finally {
       _autoSaving = false;
     }
@@ -361,62 +458,84 @@ document.addEventListener('DOMContentLoaded', () => {
     const recompute = opts.recompute !== false;
     const allowDirty = !!opts.allowDirty;
     const markConfirmed = opts.markConfirmed === true;
-    const session = ActiveSession.get();
-    if (!session) return;
+    const allowDownload = opts.allowDownload !== false;
+    const snapshot = opts.snapshot || _cloneSessionSnapshot();
+    if (!snapshot) return false;
+    const activeSession = ActiveSession.get();
 
     if (!recompute && !allowDirty && _lastResult && ActiveSession.isDirty()) {
-      _showToast('Ada perubahan baru. Klik "Hitung (+Auto Simpan)" dulu agar output sinkron.', 'info');
-      return;
+      _showToast('Unsaved changes. Click "Compute & Mark Complete" first so output stays in sync.', 'info');
+      return false;
     }
 
     // Compute results (union-find clustering) when needed
-    if (recompute || !_lastResult) {
-      _lastResult = Results.compute(session);
+    let result = _lastResult;
+    if (recompute || !result || !activeSession || activeSession.treeName !== snapshot.treeName) {
+      result = Results.compute(snapshot);
+      if (activeSession && activeSession.treeName === snapshot.treeName) _lastResult = result;
     }
-    const result = _lastResult;
 
     // Generate output JSON
-    const treeId = ActiveSession.getTreeId() || ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
-    const projectCfg = ProjectConfig.get();
-    const datasetTree = DatasetManager.getTree();
-    const outputJson = OutputSchema.generate(session, result, treeId, projectCfg, datasetTree);
+    const datasetTree = _getDatasetTreeByName(snapshot.treeName);
+    if (!datasetTree || datasetTree.name !== snapshot.treeName) {
+      _showToast(`Save blocked: dataset tree mismatch for ${snapshot.treeName}.`, 'error');
+      return false;
+    }
+    const outputJson = OutputSchema.generate(snapshot, result, datasetTree);
+    try {
+      _validateOutputAgainstTree(outputJson, datasetTree);
+    } catch (e) {
+      _showToast(`Save blocked: ${e.message}`, 'error');
+      console.error('[Output] validation failed:', e);
+      return false;
+    }
 
     // Save to output folder or download.
     // Filename is canonical (tree_name only) so re-saves overwrite in place
     // instead of producing duplicates with shifting tree_id counters.
-    const filename = `${session.treeName}.json`;
-    const saveResult = await FsOutput.saveJSON(filename, outputJson);
+    const filename = `${snapshot.treeName}.json`;
+    const saveResult = await FsOutput.saveJSON(filename, outputJson, { allowDownload });
 
     if (saveResult.ok) {
-      if (ActiveSession.markClean) ActiveSession.markClean();
       // Only flip the "confirmed done" flag (green checkmark + counter) when
-      // the user explicitly clicked "Hitung". Auto-save on navigate writes
+      // the user explicitly clicked "Compute & Mark Complete". Auto-save on navigate writes
       // bytes to disk but must not imply human review.
-      if (markConfirmed) {
-        ProjectConfig.markSaved(session.treeName);
-      }
       _updateSaveStatus();
       _updateSaveCounter();
-      _refreshTreeSelectOption(DatasetManager.getIndex());
+      const savedIdx = DatasetManager.findByName(snapshot.treeName);
+      if (savedIdx >= 0) _refreshTreeSelectOption(savedIdx);
       // Cache the freshly-written file handle so next refresh can lazy-resume.
       if (saveResult.method === 'filesystem') {
         try {
           const dirHandle = ProjectConfig.getOutputDirHandle();
           if (dirHandle) {
             const fh = await dirHandle.getFileHandle(filename);
-            ProjectConfig.setSavedHandle(session.treeName, fh);
+            ProjectConfig.setSavedHandle(snapshot.treeName, fh);
           }
         } catch (e) { /* non-fatal */ }
       }
-      const method = saveResult.method === 'filesystem' ? 'folder output' : 'download';
-      _showToast(`Tersimpan: ${filename} (${method})`, 'success');
+      const method = saveResult.method === 'filesystem' ? 'output folder' : 'download';
+      if (!opts.silent) _showToast(`Saved: ${filename} (${method})`, 'success');
       console.log('[Output]', filename, '→', saveResult.method);
 
       // Write corrected YOLO .txt labels into the labels folder if configured.
-      await _saveCorrectedLabels(session);
+      const labelsOk = await _saveCorrectedLabels(snapshot, datasetTree, outputJson);
+      if (labelsOk === false) return false;
+      _savedSnapshotSignatures.set(snapshot.treeName, _snapshotSignature(snapshot));
+      if (activeSession && activeSession.treeName === snapshot.treeName && ActiveSession.markClean) {
+        ActiveSession.markClean();
+      }
+      if (markConfirmed) {
+        ProjectConfig.markSaved(snapshot.treeName);
+        _updateSaveStatus();
+        _updateSaveCounter();
+        if (savedIdx >= 0) _refreshTreeSelectOption(savedIdx);
+      }
+      return true;
     } else {
-      _showToast(`Gagal menyimpan: ${saveResult.error}`, 'error');
+      _showToast(`Save failed: ${saveResult.error}`, 'error');
       console.error('[Output] Save failed:', saveResult.error);
+      return false;
     }
   }
 
@@ -424,50 +543,80 @@ document.addEventListener('DOMContentLoaded', () => {
    * Write one YOLO-format .txt per side into the configured labels directory
    * (nested under the dataset split). No-ops when no labels directory is set.
    */
-  async function _saveCorrectedLabels(session) {
-    if (!session) return;
-    if (!ProjectConfig.getLabelsDirHandle()) return;  // picker left blank → skip
-    if (!FsOutput.saveLabelFile) return;
+  async function _saveCorrectedLabels(snapshot, datasetTree, outputJson) {
+    if (!snapshot) return true;
+    if (!ProjectConfig.getLabelsDirHandle()) return true;
+    if (!FsOutput.saveLabelFile) return true;
 
     let saved = 0;
     let failed = 0;
-    for (const side of session.sides) {
+    for (const side of snapshot.sides) {
       if (!side.imageWidth || !side.imageHeight) continue;
-      const filename = `${session.treeName}_${side.sideIndex + 1}.txt`;
+      const dSide = datasetTree && datasetTree.sides && datasetTree.sides[side.sideIndex];
+      const filename = _originalLabelFilename(snapshot, side, dSide);
+      if (_treeStemFromFilename(filename) !== snapshot.treeName) {
+        failed++;
+        console.warn('[Labels] blocked mixed-tree label:', filename, snapshot.treeName);
+        continue;
+      }
+      if (_fileStem(filename) !== `${snapshot.treeName}_${side.sideIndex + 1}`) {
+        failed++;
+        console.warn('[Labels] blocked wrong-side label:', filename, snapshot.treeName, side.sideIndex);
+        continue;
+      }
       const content = toYoloFormat(side.bboxes, side.imageWidth, side.imageHeight);
-      const res = await FsOutput.saveLabelFile(filename, content, session.split);
+      const imageInfo = outputJson && outputJson.images && outputJson.images[`side_${side.sideIndex + 1}`];
+      const expected = imageInfo ? (imageInfo.annotations || []).length : side.bboxes.length;
+      if (_countYoloLines(content) !== expected) {
+        failed++;
+        console.warn('[Labels] blocked count mismatch:', filename);
+        continue;
+      }
+      const res = await FsOutput.saveLabelFile(filename, content, snapshot.split, { allowDownload: false });
       if (res.ok) saved++;
       else { failed++; console.warn('[Labels] failed:', filename, res.error); }
     }
     if (saved > 0) {
-      _showToast(`Label .txt tersimpan: ${saved} sisi ke folder label`, 'success');
+      _showToast(`Saved ${saved} label .txt file(s) to the label folder`, 'success');
     }
     if (failed > 0) {
-      _showToast(`Gagal menulis ${failed} label .txt (cek console).`, 'error');
+      _showToast(`Failed to write ${failed} label .txt file(s); see the console.`, 'error');
+      return false;
     }
+    return true;
+  }
+
+  function _originalLabelFilename(session, side, dSide) {
+    if (dSide && dSide.labelFile && dSide.labelFile.name) {
+      return dSide.labelFile.name;
+    }
+    if (dSide && dSide.imageFile && dSide.imageFile.name) {
+      return dSide.imageFile.name.replace(/\.[^.]+$/, '.txt');
+    }
+    return `${session.treeName}_${side.sideIndex + 1}.txt`;
   }
 
   // Manual save button
-  btnSaveOutput.addEventListener('click', async () => {
+  btnSaveOutput.addEventListener('click', () => _enqueueOperation(async () => {
     const ok = await _resolveMismatchesIfAny();
     if (!ok) {
-      _showToast('Simpan dibatalkan: resolusi kelas belum selesai.', 'info');
+      _showToast('Save cancelled: class mismatches are not resolved yet.', 'info');
       return;
     }
-    btnSaveOutput.disabled = true;
-    btnSaveOutput.textContent = 'Menyimpan...';
+    _setBusy(true, 'Saving...');
+    btnSaveOutput.textContent = 'Saving...';
     try {
       await _saveCurrentTreeOutput({ recompute: false });
-      // Also render results in the Hasil tab if visible
+      // Also render results in the Results tab if visible
       if (_lastResult) {
         Results.render(_lastResult, resultsContainer);
         exportButtons.classList.remove('hidden');
       }
     } finally {
-      btnSaveOutput.disabled = false;
-      btnSaveOutput.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan Ulang Output`;
+      btnSaveOutput.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Output Again`;
+      _setBusy(false);
     }
-  });
+  }));
 
   // ── Save status indicators ───────────────────────────────────────────────
 
@@ -482,10 +631,10 @@ document.addEventListener('DOMContentLoaded', () => {
     treeSaveStatus.classList.remove('hidden');
     treeSaveStatus.classList.toggle('save-status--saved', saved);
     treeSaveStatus.classList.toggle('save-status--unsaved', !saved);
-    treeSaveStatus.textContent = saved ? 'Selesai' : 'Belum dikonfirmasi';
+    treeSaveStatus.textContent = saved ? 'Complete' : 'Not confirmed';
     treeSaveStatus.title = saved
-      ? `Sudah klik Hitung — output ${session.treeName}.json terkonfirmasi`
-      : 'Auto-save jalan setiap navigasi. Klik "Hitung" untuk menandai pohon ini selesai.';
+      ? `Compute clicked: output ${session.treeName}.json is confirmed`
+      : 'Auto-save runs on navigation. Click "Compute & Mark Complete" to mark this tree complete.';
   }
 
   function _updateSaveCounter() {
@@ -494,7 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saved = ProjectConfig.getSavedCount();
     if (saved > 0) {
       saveCounter.classList.remove('hidden');
-      saveCounter.textContent = `${saved}/${total} selesai`;
+      saveCounter.textContent = `${saved}/${total} complete`;
     } else {
       saveCounter.classList.add('hidden');
     }
@@ -533,28 +682,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!file) return;
     try {
       if (DatasetManager.count() === 0) {
-        alert('Dataset belum dimuat. Klik "Muat Folder" dulu, baru "Muat Sesi".');
+        alert('Dataset is not loaded. Click "Load Folder" before "Load Session".');
         return;
       }
       const json = JSON.parse(await file.text());
 
-      // Auto-detect format. Output JSON (from "Simpan Output") has `images` +
+      // Auto-detect format. Output JSON has `images` +
       // `bunches`; native session JSON has `sides` + `confirmedLinks`.
       let sessionJson = json;
       const isOutputFormat = json && json.images && json.bunches && !json.sides;
       if (isOutputFormat) {
         sessionJson = OutputSchema.toSessionJSON(json);
-        if (json.metadata) {
-          if (json.metadata.date) ProjectConfig.setDate(json.metadata.date);
-          if (json.metadata.varietas) ProjectConfig.setVarietas(json.metadata.varietas);
-        }
         // Already persisted to disk → don't auto-save again on next navigate.
         ProjectConfig.markSaved(json.tree_name);
       }
 
       const treeIdx = DatasetManager.findByName(sessionJson.treeName);
       if (treeIdx === -1) {
-        alert(`Pohon "${sessionJson.treeName}" tidak ditemukan di dataset yang dimuat. Muat folder dataset yang berisi pohon tersebut dulu.`);
+        alert(`Tree "${sessionJson.treeName}" was not found in the loaded dataset. Load the dataset folder containing that tree first.`);
         return;
       }
       DatasetManager.goTo(treeIdx);
@@ -564,9 +709,6 @@ document.addEventListener('DOMContentLoaded', () => {
       editorArea.classList.remove('hidden');
       await ActiveSession.fromJSON(sessionJson, tree);
 
-      // Re-assign treeId from ProjectConfig so save status / output filename stay consistent.
-      const treeId = ProjectConfig.treeIdForIndex(DatasetManager.getIndex());
-      ActiveSession.setTreeId(treeId);
 
       _currentSide = 0;
       _currentPair = 0;
@@ -576,12 +718,12 @@ document.addEventListener('DOMContentLoaded', () => {
       _initEditor(0);
       _updateSaveStatus();
       _updateSaveCounter();
-      // Auto-compute results so the hasil tab is populated immediately
+      // Auto-compute results so the results tab is populated immediately.
       _lastResult = Results.compute(ActiveSession.get());
       Results.render(_lastResult, resultsContainer);
       exportButtons.classList.remove('hidden');
     } catch (err) {
-      alert('Gagal memuat sesi: ' + err.message);
+      alert('Failed to load session: ' + err.message);
     }
     inputSession.value = '';
   });
@@ -590,7 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function _activeTab() {
     const active = document.querySelector('.tab.active');
-    return active ? active.dataset.tab : 'koreksi';
+    return active ? active.dataset.tab : 'annotation';
   }
 
   tabs.forEach(tab => {
@@ -602,7 +744,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById(panelId).classList.remove('hidden');
 
       if (tab.dataset.tab === 'dedup') _initDedup();
-      if (tab.dataset.tab === 'koreksi') {
+      if (tab.dataset.tab === 'annotation') {
         // Re-init editor to restore focus/canvas size
         if (_editor) { _editor.destroy(); _editor = null; }
         _initEditor(_currentSide);
@@ -648,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!fileInfo) return;
     const session = ActiveSession.get();
     if (!session) { fileInfo.textContent = ''; return; }
-    fileInfo.textContent = `${session.treeName}_${sideIndex + 1}.jpg · ${session.split}`;
+    fileInfo.textContent = `${session.treeName}_${sideIndex + 1}.jpg - ${session.split}`;
   }
 
   function _initEditor(sideIndex) {
@@ -710,7 +852,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function _updateMagnifierBtn() {
     const on = BBoxEditor.getMagnifierEnabled();
     btnToggleMagnifier.classList.toggle('active', on);
-    btnToggleMagnifier.title = on ? 'Matikan Magnifier [M]' : 'Kaca pembesar [M]';
+    btnToggleMagnifier.title = on ? 'Disable magnifier [M]' : 'Magnifier [M]';
   }
 
   btnToggleMagnifier.addEventListener('click', () => {
@@ -734,7 +876,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!btnToggleDedupMagnifier || !DedupUI.getMagnifierEnabled) return;
     const on = DedupUI.getMagnifierEnabled();
     btnToggleDedupMagnifier.classList.toggle('active', on);
-    btnToggleDedupMagnifier.title = on ? 'Matikan Magnifier [M]' : 'Kaca pembesar [M]';
+    btnToggleDedupMagnifier.title = on ? 'Disable magnifier [M]' : 'Magnifier [M]';
   }
 
   function _updateDedupSuggestionsBtn() {
@@ -742,8 +884,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const on = DedupUI.getSuggestionsVisible();
     btnToggleDedupSuggestions.classList.toggle('active', on);
     btnToggleDedupSuggestions.title = on
-      ? 'Sembunyikan saran otomatis [S]'
-      : 'Tampilkan saran otomatis [S]';
+      ? 'Hide automatic suggestions [S]'
+      : 'Show automatic suggestions [S]';
   }
 
   function _updateDedupPairUI() {
@@ -751,17 +893,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!pairs.length || !pairs[_currentPair]) return;
     const [iA, iB] = pairs[_currentPair];
     const labels = window.TREE_SIDE_LABELS || [];
-    const lA = labels[iA] || `Sisi ${iA + 1}`;
-    const lB = labels[iB] || `Sisi ${iB + 1}`;
-    dedupPairLabel.textContent = `${lB} ↔ ${lA}`;
+    const lA = labels[iA] || `Side ${iA + 1}`;
+    const lB = labels[iB] || `Side ${iB + 1}`;
+    dedupPairLabel.textContent = `${lB} <-> ${lA}`;
     // Display: left=sideB, right=sideA (shared edges face center between canvases)
     dedupLeftLabel.innerHTML = `
       <span class="dedup-label-main">${lB}</span>
-      <span class="edge-arrow edge-arrow--right">tepi kanan →</span>
+      <span class="edge-arrow edge-arrow--right">right edge -></span>
     `;
     dedupRightLabel.innerHTML = `
       <span class="dedup-label-main">${lA}</span>
-      <span class="edge-arrow edge-arrow--left">← tepi kiri</span>
+      <span class="edge-arrow edge-arrow--left"><- left edge</span>
     `;
   }
 
@@ -809,10 +951,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const info = DedupUI.getSelectedInfo && DedupUI.getSelectedInfo();
     if (info) {
       dedupEditToolbar.classList.add('active');
-      dedupEditLabel.textContent = `${info.sideLabel} · ${info.className}`;
+      dedupEditLabel.textContent = `${info.sideLabel} - ${info.className}`;
     } else {
       dedupEditToolbar.classList.remove('active');
-      dedupEditLabel.textContent = 'Pilih bbox';
+      dedupEditLabel.textContent = 'Select bbox';
     }
   }
 
@@ -843,7 +985,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const panels = document.getElementById('dedup-panels-container');
     const btn = document.getElementById('btn-toggle-panels');
     panels.classList.toggle('collapsed');
-    btn.innerHTML = panels.classList.contains('collapsed') ? '&#9654; Saran &amp; Link' : '&#9660; Saran &amp; Link';
+    btn.innerHTML = panels.classList.contains('collapsed') ? '&#9654; Suggestions &amp; Links' : '&#9660; Suggestions &amp; Links';
   });
 
   // ── Mismatch resolve modal ──────────────────────────────────────────────
@@ -876,16 +1018,16 @@ document.addEventListener('DOMContentLoaded', () => {
         head.className = 'mismatch-item__head';
         const title = document.createElement('span');
         title.className = 'mismatch-item__title';
-        title.textContent = `Tandan #${i + 1}`;
+        title.textContent = `Bunch #${i + 1}`;
         head.appendChild(title);
         item.appendChild(head);
 
         const members = document.createElement('div');
         members.className = 'mismatch-item__members';
         members.textContent = mm.members.map(m => {
-          const label = (window.TREE_SIDE_LABELS || [])[m.sideIndex] || `Sisi ${m.sideIndex + 1}`;
+          const label = (window.TREE_SIDE_LABELS || [])[m.sideIndex] || `Side ${m.sideIndex + 1}`;
           return `${label}: ${m.className}`;
-        }).join('  ·  ');
+        }).join('  -  ');
         item.appendChild(members);
 
         const choices = document.createElement('div');
@@ -939,27 +1081,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (_mismatchResolver) _mismatchResolver(true);
   });
 
-  // ── Hasil ──────────────────────────────────────────────────────────────────
+  // ── Results ──────────────────────────────────────────────────────────────────
 
-  btnHitung.addEventListener('click', async () => {
-    const session = ActiveSession.get();
-    if (!session) return;
+  btnCompute.addEventListener('click', () => _enqueueOperation(async () => {
+    _setBusy(true, 'Saving...');
+    try {
+      const session = ActiveSession.get();
+      if (!session) return;
 
-    // Block Hitung until all class mismatches are resolved.
-    const ok = await _resolveMismatchesIfAny();
-    if (!ok) {
-      _showToast('Hitung dibatalkan: resolusi kelas belum selesai.', 'info');
-      return;
+      // Block compute until all class mismatches are resolved.
+      const ok = await _resolveMismatchesIfAny();
+      if (!ok) {
+        _showToast('Compute cancelled: class mismatches are not resolved yet.', 'info');
+        return;
+      }
+
+      const snapshot = _cloneSessionSnapshot();
+      if (!snapshot) return;
+      _lastResult = Results.compute(snapshot);
+      Results.render(_lastResult, resultsContainer);
+      exportButtons.classList.remove('hidden');
+
+      // Also save output. markConfirmed=true -> tree gets the green checkmark.
+      await _saveCurrentTreeOutput({ recompute: false, allowDirty: true, markConfirmed: true, snapshot });
+    } finally {
+      _setBusy(false);
     }
-
-    _lastResult = Results.compute(session);
-    Results.render(_lastResult, resultsContainer);
-    exportButtons.classList.remove('hidden');
-
-    // Also auto-save output. markConfirmed=true → tree gets the green checkmark
-    // (annotator explicitly confirmed dedup is done).
-    await _saveCurrentTreeOutput({ recompute: false, allowDirty: true, markConfirmed: true });
-  });
+  }));
 
   btnExportYolo.addEventListener('click', () => {
     const session = ActiveSession.get();
@@ -1012,7 +1160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Magnifier toggle — works even when editor canvas has focus
     if (e.key === 'm' || e.key === 'M') {
-      if (tab === 'koreksi') {
+      if (tab === 'annotation') {
         BBoxEditor.setMagnifierGlobal(!BBoxEditor.getMagnifierEnabled());
         _updateMagnifierBtn();
         e.preventDefault();
@@ -1048,7 +1196,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const nSides = ActiveSession.get() ? ActiveSession.get().sides.length : 4;
 
-    if (tab === 'koreksi') {
+    if (tab === 'annotation') {
       switch (e.key) {
         case 'q': case 'Q': {
           const si = (_currentSide + nSides - 1) % nSides;

@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * OutputSchema — generates the Bu-Fatma-spec output JSON for a single tree.
+ * OutputSchema - generates the SawitMVC output JSON for a single tree.
  *
  * Format:
- *   - tree_id:   generated from ProjectConfig (date + varietas + number)
+ *   - tree_id:   canonical tree name
  *   - images:    per-side image info + annotations with both YOLO & pixel coords
  *   - bunches:   unique bunches with cross-references to side + box_index
  *   - summary:   counts
@@ -85,12 +85,12 @@ const OutputSchema = (() => {
 
   /**
    * Get a stable side key for a given side index.
-   * Uniform numeric naming: always "sisi_N" (1-based) regardless of total sides.
+   * Uniform numeric naming: always "side_N" (1-based) regardless of total sides.
    * The `totalSides` argument is retained for backward-compatibility with
    * existing call sites but is no longer used for key selection.
    */
   function _sideKey(sideIndex /*, totalSides */) {
-    return 'sisi_' + (sideIndex + 1);
+    return 'side_' + (sideIndex + 1);
   }
 
   /**
@@ -108,16 +108,14 @@ const OutputSchema = (() => {
 
   /**
    * Derive variety from a tree_name (e.g. "DAMIMAS_A21B_0001" → "DAMIMAS",
-   * "LONSUM_A21A_0099" → "LONSUM"). Falls back to projectCfg.varietas, then
-   * "UNKNOWN". Per-tree derivation prevents the legacy bug where every export
-   * inherited the project-level varietas regardless of actual tree.
+   * "LONSUM_A21A_0099" -> "LONSUM"). The value is derived per tree.
    */
-  function _deriveVarietasFromTreeName(treeName, fallback) {
+  function _deriveVarietyFromTreeName(treeName) {
     if (typeof treeName === 'string') {
       const m = treeName.match(/^([A-Za-z]+)_/);
       if (m) return m[1].toUpperCase();
     }
-    return (fallback || 'UNKNOWN').toUpperCase();
+    return 'UNKNOWN';
   }
 
   /**
@@ -125,12 +123,10 @@ const OutputSchema = (() => {
    *
    * @param {object} session      — ActiveSession.get()
    * @param {object} result       — Results.compute(session) output
-   * @param {string} treeId       — legacy session counter (kept as metadata.session_id)
-   * @param {object} projectCfg   — ProjectConfig.get()
    * @param {object} datasetTree  — DatasetManager.getTree() (for original filenames)
    * @returns {object}            — the output JSON object
    */
-  function generate(session, result, treeId, projectCfg, datasetTree) {
+  function generate(session, result, datasetTree) {
     const totalSides = session.sides.length;
     const bboxIndexMap = _buildBboxIndexMap(session);
     const adjacentPairSet = _buildAdjacentPairSet(totalSides);
@@ -146,7 +142,9 @@ const OutputSchema = (() => {
       // Get original filenames from dataset tree
       const dSide = datasetTree && datasetTree.sides[side.sideIndex];
       const imageFilename = dSide && dSide.imageFile ? dSide.imageFile.name : `${session.treeName}_${side.sideIndex + 1}.jpg`;
-      const labelFilename = dSide && dSide.labelFile ? dSide.labelFile.name : `${session.treeName}_${side.sideIndex + 1}.txt`;
+      const labelFilename = dSide && dSide.labelFile
+        ? dSide.labelFile.name
+        : imageFilename.replace(/\.[^.]+$/, '.txt');
 
       const annotations = side.bboxes.map((bbox, boxIdx) => ({
         box_index: boxIdx,
@@ -257,20 +255,14 @@ const OutputSchema = (() => {
     }
 
     // ── Full output ────────────────────────────────────────────────────────
-    // tree_id is now canonical = tree_name (per-tree, idempoten across sessions).
-    // The legacy session counter (e.g. "20260422-DAMIMAS-001") is preserved in
-    // metadata.session_id for traceability but no longer drives filenames.
-    const varietas = _deriveVarietasFromTreeName(session.treeName, projectCfg && projectCfg.varietas);
+    const variety = _deriveVarietyFromTreeName(session.treeName);
     return {
-      version: 2,
+      version: 4,
       tree_id: session.treeName,
       tree_name: session.treeName,
       split: session.split,
       metadata: {
-        date: projectCfg.date,
-        varietas,
-        session_id: treeId || null,
-        number: treeId ? (parseInt(String(treeId).split('-').pop(), 10) || 0) : 0,
+        variety,
         generated_at: new Date().toISOString(),
       },
       images,
@@ -292,7 +284,7 @@ const OutputSchema = (() => {
    */
   function toSessionJSON(outputJson) {
     if (!outputJson || !outputJson.images) {
-      throw new Error('Bukan output JSON yang valid (tidak ada field "images").');
+      throw new Error('Invalid output JSON: missing "images" field.');
     }
 
     const sideEntries = Object.entries(outputJson.images)
@@ -301,7 +293,7 @@ const OutputSchema = (() => {
 
     const sides = sideEntries.map(({ img }) => ({
       sideIndex: img.side_index,
-      label: img.side_label,
+      label: typeof img.side_label === 'string' ? img.side_label.replace(/^Si(?:si)\b/, 'Side') : `Side ${img.side_index + 1}`,
       imageWidth: img.width,
       imageHeight: img.height,
       bboxes: (img.annotations || []).map((ann, i) => ({

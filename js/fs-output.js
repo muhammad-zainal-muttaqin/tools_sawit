@@ -11,13 +11,14 @@ const FsOutput = (() => {
   /**
    * Save a JSON object to the output directory (or download as fallback).
    *
-   * @param {string} filename  — e.g. "20260416-DAMIMAS-001.json"
+   * @param {string} filename  output filename, e.g. "DAMIMAS_A21B_0001.json"
    * @param {object} data      — JSON-serializable object
    * @returns {Promise<{ok: boolean, method: string, error?: string}>}
    */
-  async function saveJSON(filename, data) {
+  async function saveJSON(filename, data, opts = {}) {
     const dirHandle = ProjectConfig.getOutputDirHandle();
     const jsonStr = JSON.stringify(data, null, 2);
+    const allowDownload = opts.allowDownload !== false;
 
     // Try File System Access API first
     if (dirHandle) {
@@ -31,6 +32,10 @@ const FsOutput = (() => {
         console.warn('[FsOutput] File System write failed, falling back to download:', e);
         // Permission may have been revoked — fall through to download
       }
+    }
+
+    if (!allowDownload) {
+      return { ok: false, method: 'none', error: 'No writable output folder is available.' };
     }
 
     // Fallback: browser download
@@ -77,13 +82,14 @@ const FsOutput = (() => {
    * mirrors the dataset layout. If no labels directory is configured or the
    * File System Access API is unavailable, the file is downloaded instead.
    *
-   * @param {string} filename   e.g. "DAMIMAS_A21B_0003_1.txt"
+   * @param {string} filename   original per-side label filename
    * @param {string} content    YOLO-formatted label text
    * @param {string} [split]    dataset split name ("train"|"val"|"test"|...)
    * @returns {Promise<{ok:boolean, method:string, error?:string}>}
    */
-  async function saveLabelFile(filename, content, split) {
+  async function saveLabelFile(filename, content, split, opts = {}) {
     const labelsDir = ProjectConfig.getLabelsDirHandle();
+    const allowDownload = opts.allowDownload === true;
 
     if (labelsDir) {
       try {
@@ -98,6 +104,10 @@ const FsOutput = (() => {
       } catch (e) {
         console.warn('[FsOutput] Label write failed, falling back to download:', e);
       }
+    }
+
+    if (!allowDownload) {
+      return { ok: false, method: 'none', error: 'No writable label folder is available.' };
     }
 
     try {
@@ -142,8 +152,8 @@ const FsOutput = (() => {
    * List all output JSON files in the output directory and map them by tree name.
    *
    * Supports two filename patterns:
-   *   - v2 canonical:  `${treeName}.json`  (e.g. "DAMIMAS_A21B_0001.json")
-   *   - v1 legacy:     `${treeId}__${treeName}.json` (e.g. "20260422-DAMIMAS-001__DAMIMAS_A21B_0001.json")
+   *   - canonical: `${treeName}.json` (e.g. "DAMIMAS_A21B_0001.json")
+   *   - legacy:    `${treeId}__${treeName}.json` (e.g. "20260422-DAMIMAS-001__DAMIMAS_A21B_0001.json")
    *
    * The canonical key for the returned map is the tree_name (not the legacy
    * tree_id) so resume logic is idempotent regardless of when the file was
@@ -158,9 +168,9 @@ const FsOutput = (() => {
     if (!ok) return new Map();
 
     const map = new Map();
-    const sourceLegacy = new Map(); // key → true if the entry came from a legacy filename
+    const sourceLegacy = new Map(); // key -> true if the entry came from a legacy filename
     const reLegacy = /^.+?__(.+)\.json$/i;          // v1 with double-prefix
-    const reTreeName = /^([A-Za-z]+_.+?)\.json$/i;  // v2 canonical (varietas-prefixed)
+    const reTreeName = /^([A-Za-z]+_.+?)\.json$/i;  // v2 canonical (variety-prefixed)
     try {
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind !== 'file') continue;
@@ -176,7 +186,7 @@ const FsOutput = (() => {
           if (mNew) key = mNew[1];
         }
         if (!key) continue;
-        // Prefer the v2 canonical filename when both exist for the same tree.
+        // Prefer the canonical filename when both exist for the same tree.
         if (!map.has(key) || (sourceLegacy.get(key) && !isLegacy)) {
           map.set(key, handle);
           sourceLegacy.set(key, isLegacy);

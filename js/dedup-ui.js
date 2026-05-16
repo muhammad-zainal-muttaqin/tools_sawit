@@ -152,7 +152,7 @@ const DedupUI = (() => {
       if (mw > 10) {
         const fs = Math.max(10, 11 * magDpr);
         ctx.font = `${fs}px sans-serif`;
-        const lbl = b.className + (hi ? (hi.crossPair ? ' [pair lain]' : ` #${hi.num}`) : '');
+        const lbl = b.className + (hi ? (hi.crossPair ? ' [other pair]' : ` #${hi.num}`) : '');
         ctx.fillStyle = color;
         ctx.fillRect(mx1, Math.max(0, my1 - fs - 2), ctx.measureText(lbl).width + 4, fs + 2);
         ctx.fillStyle = '#fff';
@@ -343,7 +343,7 @@ const DedupUI = (() => {
       }
 
       // Label
-      const labelSuffix = hi ? (hi.crossPair ? ' [pair lain]' : ` #${hi.num}`) : '';
+      const labelSuffix = hi ? (hi.crossPair ? ' [other pair]' : ` #${hi.num}`) : '';
       const label = `#${idx + 1} ${b.className}${labelSuffix}`;
       const fontSize = Math.max(10, tr.scaleToCanvas(11));
       ctx.font = `${fontSize}px sans-serif`;
@@ -482,12 +482,12 @@ const DedupUI = (() => {
     const [iA, iB] = ADJACENT_PAIRS[_pairIndex];
 
     if (!_showSuggestions) {
-      _suggEl.innerHTML = '<p class="dedup-empty">Saran otomatis disembunyikan.</p>';
+      _suggEl.innerHTML = '<p class="dedup-empty">Automatic suggestions are hidden.</p>';
       return;
     }
 
     if (suggestions.length === 0) {
-      _suggEl.innerHTML = '<p class="dedup-empty">Tidak ada saran.</p>';
+      _suggEl.innerHTML = '<p class="dedup-empty">No suggestions.</p>';
       return;
     }
 
@@ -495,7 +495,7 @@ const DedupUI = (() => {
     if (autoCount > 0) {
       const btn = document.createElement('button');
       btn.className = 'btn btn-success btn-sm';
-      btn.textContent = `Terima Semua Auto (${autoCount})`;
+      btn.textContent = `Accept All Auto (${autoCount})`;
       btn.onclick = () => {
         ActiveSession.confirmAllAutoForPair(iA, iB);
         _renderPair();
@@ -526,37 +526,37 @@ const DedupUI = (() => {
       label.className = 'dedup-suggestion-label';
       const scoreStr = (sug.score * 100).toFixed(0);
       const mismatch = bA.className !== bB.className;
-      label.textContent = `${bB.className} (${TREE_SIDE_LABELS[iB]}) ↔ ${bA.className} (${TREE_SIDE_LABELS[iA]}) — ${scoreStr}%${mismatch ? ' ⚠' : ''}`;
+      label.textContent = `${bB.className} (${TREE_SIDE_LABELS[iB]}) <-> ${bA.className} (${TREE_SIDE_LABELS[iA]}) - ${scoreStr}%${mismatch ? ' !' : ''}`;
       main.appendChild(label);
 
       if (sug.signals) main.appendChild(_buildSignalBadges(sug.signals));
 
-      const terima = document.createElement('button');
-      terima.className = 'btn btn-xs btn-success';
-      terima.textContent = 'Terima';
-      terima.onclick = () => { ActiveSession.confirmLink(sug.linkId); _renderPair(); };
+      const accept = document.createElement('button');
+      accept.className = 'btn btn-xs btn-success';
+      accept.textContent = 'Accept';
+      accept.onclick = () => { ActiveSession.confirmLink(sug.linkId); _renderPair(); };
 
-      const tolak = document.createElement('button');
-      tolak.className = 'btn btn-xs btn-danger';
-      tolak.textContent = 'Tolak';
-      tolak.onclick = () => { ActiveSession.rejectLink(sug.linkId); _renderPair(); };
+      const reject = document.createElement('button');
+      reject.className = 'btn btn-xs btn-danger';
+      reject.textContent = 'Reject';
+      reject.onclick = () => { ActiveSession.rejectLink(sug.linkId); _renderPair(); };
 
-      row.append(badge, main, terima, tolak);
+      row.append(badge, main, accept, reject);
       _suggEl.appendChild(row);
     });
   }
 
   // Build small colored badges showing the per-signal breakdown of a score.
-  // Green ≥ 0.75, amber 0.50-0.75, red < 0.50. Class multiplier is shown
+    // Green >= 0.75, amber 0.50-0.75, red < 0.50. Class multiplier is shown
   // separately (green = same class, amber = adjacent, red = far).
   function _buildSignalBadges(signals) {
     const wrap = document.createElement('div');
     wrap.className = 'dedup-signal-badges';
     const entries = [
-      ['seam', signals.seam, 'Kedekatan ke garis bagi (0 = tengah, 1 = mepet seam)'],
-      ['vert', signals.vert, 'Kecocokan ketinggian (centroid Y)'],
-      ['size', signals.size, 'Kemiripan ukuran + aspect ratio'],
-      ['cls',  signals.cls,  'Pengali berbasis kelas (1 = sama, 0.85 = ±1 grade, 0.5 = jauh)'],
+      ['seam', signals.seam, 'Seam proximity (0 = center, 1 = near seam)'],
+      ['vert', signals.vert, 'Vertical centroid similarity'],
+      ['size', signals.size, 'Size and aspect-ratio similarity'],
+      ['cls',  signals.cls,  'Class-based multiplier (1 = same, 0.85 = ±1 grade, 0.5 = far)'],
     ];
     for (const [key, val, tip] of entries) {
       if (val == null) continue;
@@ -576,7 +576,7 @@ const DedupUI = (() => {
     _linksEl.innerHTML = '';
 
     if (links.length === 0) {
-      _linksEl.innerHTML = '<p class="dedup-empty">Belum ada link terkonfirmasi.</p>';
+      _linksEl.innerHTML = '<p class="dedup-empty">No confirmed links yet.</p>';
       return;
     }
 
@@ -602,14 +602,14 @@ const DedupUI = (() => {
       const label = document.createElement('span');
       label.className = 'dedup-link-label';
       const classMismatch = bLeft && bRight && bLeft.className !== bRight.className;
-      label.textContent = `${bLeft ? bLeft.className : '?'} (${TREE_SIDE_LABELS[leftIdx]}) ↔ ${bRight ? bRight.className : '?'} (${TREE_SIDE_LABELS[rightIdx]})${classMismatch ? ' ⚠' : ''}`;
+      label.textContent = `${bLeft ? bLeft.className : '-'} (${TREE_SIDE_LABELS[leftIdx]}) <-> ${bRight ? bRight.className : '-'} (${TREE_SIDE_LABELS[rightIdx]})${classMismatch ? ' !' : ''}`;
 
-      const hapus = document.createElement('button');
-      hapus.className = 'btn btn-xs btn-danger';
-      hapus.textContent = 'Hapus';
-      hapus.onclick = () => { ActiveSession.removeConfirmedLink(link.linkId); _renderPair(); };
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn btn-xs btn-danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.onclick = () => { ActiveSession.removeConfirmedLink(link.linkId); _renderPair(); };
 
-      row.append(badge, label, hapus);
+      row.append(badge, label, deleteBtn);
       _linksEl.appendChild(row);
     });
   }
@@ -936,8 +936,8 @@ const DedupUI = (() => {
 
   function getPairLabels() {
     return (window.ADJACENT_PAIRS || []).map(([a, b]) => [
-      (window.TREE_SIDE_LABELS || [])[a] || `Sisi ${a + 1}`,
-      (window.TREE_SIDE_LABELS || [])[b] || `Sisi ${b + 1}`,
+      (window.TREE_SIDE_LABELS || [])[a] || `Side ${a + 1}`,
+      (window.TREE_SIDE_LABELS || [])[b] || `Side ${b + 1}`,
     ]);
   }
   function getCurrentPair() { return _pairIndex; }

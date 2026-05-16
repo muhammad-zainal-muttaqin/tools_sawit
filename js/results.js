@@ -82,23 +82,23 @@ const Results = (() => {
       <div class="results-stats">
         <div class="stat-card stat-unique">
           <div class="stat-value">${uniqueCount}</div>
-          <div class="stat-label">Tandan Unik</div>
+          <div class="stat-label">Unique Bunches</div>
         </div>
         <div class="stat-card stat-raw">
           <div class="stat-value">${rawCount}</div>
-          <div class="stat-label">Total Deteksi</div>
+          <div class="stat-label">Total Detections</div>
         </div>
         <div class="stat-card stat-linked">
           <div class="stat-value">${linkedCount}</div>
-          <div class="stat-label">Duplikat Ditautkan</div>
+          <div class="stat-label">Linked Duplicates</div>
         </div>
       </div>
 
       <div class="results-tables">
         <div class="results-table-block">
-          <h3>Per Kelas</h3>
+          <h3>By Class</h3>
           <table class="data-table">
-            <thead><tr><th>Kelas</th><th>Jumlah</th></tr></thead>
+            <thead><tr><th>Class</th><th>Count</th></tr></thead>
             <tbody>
               ${Object.entries(classCounts)
                 .filter(([k]) => k !== 'other')
@@ -108,9 +108,9 @@ const Results = (() => {
           </table>
         </div>
         <div class="results-table-block">
-          <h3>Per Sisi</h3>
+          <h3>By Side</h3>
           <table class="data-table">
-            <thead><tr><th>Sisi</th><th>Bbox</th></tr></thead>
+            <thead><tr><th>Side</th><th>Bbox</th></tr></thead>
             <tbody>
               ${Object.entries(sideCounts)
                 .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
@@ -205,7 +205,7 @@ const Results = (() => {
     }
 
     const data = {
-      treeId: session.treeName,
+      tree_name: session.treeName,
       exportedAt: new Date().toISOString(),
       totalUniqueBunches: bunches.length,
       classMismatchCount: mismatchBunches.length,

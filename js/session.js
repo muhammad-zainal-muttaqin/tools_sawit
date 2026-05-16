@@ -1,15 +1,15 @@
 'use strict';
 
 // Dynamic side labels + adjacency — regenerated per tree based on number of photos.
-// Naming is always numeric ("Sisi 1".."Sisi N") so the UI handles any side count
+// Naming is always numeric ("Side 1".."Side N") so the UI handles any side count
 // uniformly and avoids bias toward physical compass directions.
-let TREE_SIDE_LABELS = ['Sisi 1', 'Sisi 2', 'Sisi 3', 'Sisi 4'];
+let TREE_SIDE_LABELS = ['Side 1', 'Side 2', 'Side 3', 'Side 4'];
 
 // Adjacent pair definitions: [sideA, sideB] clockwise (right edge of A meets left edge of B)
 let ADJACENT_PAIRS = [[0, 1], [1, 2], [2, 3], [3, 0]];
 
 function generateSideLabels(n) {
-  return Array.from({ length: n }, (_, i) => `Sisi ${i + 1}`);
+  return Array.from({ length: n }, (_, i) => `Side ${i + 1}`);
 }
 
 function generateAdjacentPairs(n) {
@@ -87,7 +87,6 @@ const ActiveSession = (() => {
 
     _state = {
       treeName: datasetTree.name,
-      treeId: '',  // set externally via setTreeId() after config is ready
       split: datasetTree.split,
       sides,
       suggestedLinks: [],
@@ -209,7 +208,7 @@ const ActiveSession = (() => {
   /**
    * Return clusters whose members disagree on class. Each entry has all member
    * refs, the set of observed classIds, and the majority-vote classId. Used to
-   * drive the mismatch-resolve modal before Hitung / auto-save.
+   * drive the mismatch-resolve modal before compute / auto-save.
    */
   function getMismatchedClusters() {
     if (!_state) return [];
@@ -420,9 +419,6 @@ const ActiveSession = (() => {
 
   function isDirty() { return _state ? _state.dirty : false; }
   function markClean() { if (_state) _state.dirty = false; }
-
-  function setTreeId(id) { if (_state) _state.treeId = id; }
-  function getTreeId() { return _state ? _state.treeId : ''; }
 
   function _validNodeSet() {
     const set = new Set();
@@ -645,7 +641,7 @@ const ActiveSession = (() => {
     setBboxClass, propagateClassFromBox, getClusterMembers, getMismatchedClusters,
     runSuggestions, confirmLink, confirmAllAuto, confirmAllAutoForPair,
     rejectLink, addManualLink, removeConfirmedLink,
-    isDirty, markClean, toJSON, setTreeId, getTreeId,
+    isDirty, markClean, toJSON,
     get ADJACENT_PAIRS() { return ADJACENT_PAIRS; },
     get TREE_SIDE_LABELS() { return TREE_SIDE_LABELS; },
     get sideCount() { return _state ? _state.sides.length : TREE_SIDE_LABELS.length; },

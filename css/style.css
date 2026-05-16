@@ -1,11 +1,11 @@
 /* ============================================
-   SawitAI — Tropical Tech Aesthetic
+   PalmAnnotate - Tropical Tech Aesthetic
    Instrument Serif + DM Sans + JetBrains Mono
    Deep emerald, warm gold, organic textures
    ============================================ */
 
 :root {
-  /* Palette — boosted contrast */
+  /* Palette - boosted contrast */
   --c-bg: #0c120c;
   --c-surface: #141e14;
   --c-surface-raised: #1c2c1c;
@@ -1336,7 +1336,7 @@ input { font-family: inherit; }
   .card__file-name { max-width: 45vw; }
   .table th, .table td { padding: 0.6rem var(--space-md); }
 
-  /* Settings panel — full width, reduced inner padding */
+  /* Settings panel - full width, reduced inner padding */
   .settings { width: 100%; max-width: 100%; }
   .settings__inner { padding: var(--space-md); }
   .settings__title { font-size: 1.25rem; }
@@ -1384,7 +1384,7 @@ input { font-family: inherit; }
 }
 
 /* ============================================================
-   DATASET CORRECTION TOOL — Component Styles
+   DATASET CORRECTION TOOL - Component Styles
    ============================================================ */
 
 /* ---- Header wide variant ---- */
@@ -1547,8 +1547,8 @@ input { font-family: inherit; }
   flex-direction: column;
 }
 
-/* ---- Koreksi tab ---- */
-.koreksi-layout {
+/* ---- Annotation Editor tab ---- */
+.annotation-layout {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1556,7 +1556,7 @@ input { font-family: inherit; }
   overflow: hidden;
 }
 
-.koreksi-sidebar {
+.annotation-sidebar {
   width: 180px;
   flex-shrink: 0;
   display: flex;
@@ -1964,8 +1964,8 @@ input { font-family: inherit; }
 .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; cursor: pointer; font-family: var(--f-body); }
 .btn-xs { padding: 0.2rem 0.5rem; font-size: 0.7rem; cursor: pointer; font-family: var(--f-body); border-radius: 4px; }
 
-/* ---- Hasil tab ---- */
-.hasil-header {
+/* ---- Results tab ---- */
+.results-header {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -2414,7 +2414,7 @@ kbd {
 }
 
 @media (max-width: 640px) {
-  .koreksi-sidebar { width: 130px; }
+  .annotation-sidebar { width: 130px; }
   .dedup-canvases  { grid-template-columns: 1fr; }
   .dedup-canvas-block:first-child { border-right: none; }
   .dedup-panels    { grid-template-columns: 1fr; max-height: 140px; }
